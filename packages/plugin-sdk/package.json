@@ -12,9 +12,13 @@
     "test": "tsc -p tsconfig.json && node --test .test-dist/tests/*.test.js"
   },
   "exports": {
-    "./host": {
-      "types": "./src/host/index.ts",
-      "default": "./src/host/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./types": {
+      "types": "./src/types/index.ts",
+      "default": "./src/types/index.ts"
     },
     "./package.json": "./package.json"
   },

@@ -69,8 +69,24 @@ mod tests {
         let index_module = fs::read_to_string(plugin_sdk_types_directory.join("index.ts"))
             .unwrap_or_else(|error| panic!("failed to read plugin SDK type index: {error}"));
 
-        assert!(protocol_module.contains("export type PluginJsonRpcRequest"));
-        assert!(protocol_module.contains("a: number"));
+        // The v1 protocol surface (design-v3 §22.5) is the sole source of truth; the legacy
+        // `add`/NDJSON DTOs are intentionally absent (§22.4).
+        assert!(
+            protocol_module.contains("export type PluginId = string;"),
+            "PluginId must be exported as a transparent string"
+        );
+        assert!(
+            protocol_module.contains("export type AgentScope"),
+            "AgentScope discriminated union must be exported"
+        );
+        assert!(
+            protocol_module.contains("StartConversationRequest"),
+            "Agent Contract v1 request DTOs must be exported"
+        );
+        assert!(
+            !protocol_module.contains("PluginAddParams"),
+            "legacy `add` DTOs must not appear in the v1 type surface"
+        );
         assert_eq!(index_module, render_index_module());
     }
 }

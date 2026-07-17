@@ -7,7 +7,7 @@ use tokio::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command};
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::{ManagedProcess, ProcessSpawner, ProcessSpec};
+use crate::{EnvironmentPolicy, ManagedProcess, ProcessSpawner, ProcessSpec};
 
 /// Tokio-backed process spawner for real OS child processes.
 #[derive(Debug, Clone, Copy, Default)]
@@ -33,6 +33,11 @@ impl ProcessSpawner for TokioProcessSpawner {
 
         if let Some(cwd) = spec.cwd_path() {
             command.current_dir(cwd);
+        }
+        if spec.env_policy() == EnvironmentPolicy::ClearAndAllowlist {
+            // §14.3: agent launches must not silently inherit the Host environment; clear it so only
+            // the explicitly configured (granted) overrides reach the child.
+            command.env_clear();
         }
         for (key, value) in spec.envs() {
             command.env(key, value);

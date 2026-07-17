@@ -13,7 +13,9 @@ workspace = true
 [dependencies]
 ora-process = { workspace = true }
 ora-plugin-protocol = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+sha2 = "0.10"
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "time"] }
 

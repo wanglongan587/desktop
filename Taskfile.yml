@@ -78,7 +78,7 @@ tasks:
       - task: export-contracts
       - task: export-plugin-sdk
       - pnpm --filter @ora/contracts test
-      - pnpm --filter @ora/plugin-sdk test
+      - pnpm --filter @ora-space/plugin-sdk test
       - cargo test --workspace
 
   ###################################################

@@ -24,6 +24,20 @@ impl ProcessStdio {
     }
 }
 
+/// How a child process inherits environment variables from the parent (design-v3 §14.3).
+///
+/// Agent plugin launches must not silently inherit the whole Host environment; a typed policy avoids
+/// a hard-to-read bool and makes "clear, then apply only the explicitly granted allowlist" explicit.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum EnvironmentPolicy {
+    /// Inherit the parent environment, then apply the configured overrides (leaf/test behavior).
+    #[default]
+    Inherit,
+    /// Clear the parent environment entirely, then apply ONLY the configured overrides as an
+    /// explicit allowlist (agent-launch: no inherited `PATH`/user-dir/Host env unless granted).
+    ClearAndAllowlist,
+}
+
 /// Spawn configuration for one OS child process.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessSpec {
@@ -31,6 +45,7 @@ pub struct ProcessSpec {
     args: Vec<OsString>,
     cwd: Option<PathBuf>,
     envs: Vec<(OsString, OsString)>,
+    env_policy: EnvironmentPolicy,
     stdin: ProcessStdio,
     stdout: ProcessStdio,
     stderr: ProcessStdio,
@@ -44,6 +59,7 @@ impl ProcessSpec {
             args: Vec::new(),
             cwd: None,
             envs: Vec::new(),
+            env_policy: EnvironmentPolicy::default(),
             stdin: ProcessStdio::Piped,
             stdout: ProcessStdio::Piped,
             stderr: ProcessStdio::Piped,
@@ -76,6 +92,12 @@ impl ProcessSpec {
     /// Adds or overrides one environment variable for the child process.
     pub fn env(mut self, key: impl Into<OsString>, value: impl Into<OsString>) -> Self {
         self.envs.push((key.into(), value.into()));
+        self
+    }
+
+    /// Sets the environment policy (§14.3). Defaults to [`EnvironmentPolicy::Inherit`].
+    pub fn with_env_policy(mut self, policy: EnvironmentPolicy) -> Self {
+        self.env_policy = policy;
         self
     }
 
@@ -131,6 +153,11 @@ impl ProcessSpec {
             .map(|(key, value)| (key.as_os_str(), value.as_os_str()))
     }
 
+    /// Returns the environment policy (§14.3).
+    pub fn env_policy(&self) -> EnvironmentPolicy {
+        self.env_policy
+    }
+
     /// Returns the configured stdin policy.
     pub fn stdin_policy(&self) -> ProcessStdio {
         self.stdin
@@ -149,5 +176,30 @@ impl ProcessSpec {
     /// Returns whether the child process should be killed when the handle is dropped.
     pub fn should_kill_on_drop(&self) -> bool {
         self.kill_on_drop
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_policy_defaults_to_inherit_and_is_settable() {
+        let spec = ProcessSpec::new("bun");
+        assert_eq!(spec.env_policy(), EnvironmentPolicy::Inherit);
+        let spec = spec.with_env_policy(EnvironmentPolicy::ClearAndAllowlist);
+        assert_eq!(spec.env_policy(), EnvironmentPolicy::ClearAndAllowlist);
+    }
+
+    #[test]
+    fn env_overrides_are_preserved_alongside_policy() {
+        let spec = ProcessSpec::new("bun")
+            .with_env_policy(EnvironmentPolicy::ClearAndAllowlist)
+            .env("ORA_PLUGIN_API", "1")
+            .env("PATH", "/granted/bin");
+        assert_eq!(spec.env_policy(), EnvironmentPolicy::ClearAndAllowlist);
+        let envs: Vec<(&OsStr, &OsStr)> = spec.envs().collect();
+        assert_eq!(envs.len(), 2);
+        assert_eq!(envs[0].0, OsStr::new("ORA_PLUGIN_API"));
     }
 }

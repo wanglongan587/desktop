@@ -29,3 +29,6 @@ packages/plugin-sdk/.test-dist/
 /.data
 .tmp
 *.tsbuildinfo
+
+# CodeGraph local index
+/.codegraph/
