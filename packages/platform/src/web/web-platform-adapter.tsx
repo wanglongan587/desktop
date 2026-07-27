@@ -23,6 +23,10 @@ export type WebPlatformSnapshot =
 /** Coordinates Promise-based platform calls with the React-owned Web path picker dialog. */
 export class WebPlatformAdapter implements PlatformAdapter, PlatformHostRenderer {
   readonly worktreeStorage = { kind: "unsupported" as const };
+  // The browser owns its own chrome, so the shell paints no window controls.
+  readonly windowControls = { kind: "none" as const };
+  // The browser cannot launch native file managers, terminals, or editors.
+  readonly locationActions = { kind: "unsupported" as const };
   private activeSelection: ActivePathSelection | null = null;
   private listeners = new Set<() => void>();
   private nextRequestId = 1;

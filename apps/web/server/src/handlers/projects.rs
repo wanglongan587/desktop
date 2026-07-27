@@ -21,7 +21,6 @@ pub struct ProjectPath {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProjectBody {
     name: String,
-    root_path: String,
 }
 
 /// Creates one project by forwarding the request body into the application layer.
@@ -72,7 +71,6 @@ pub async fn update_project(
         .update_project(UpdateProjectRequest {
             project_id: path.project_id,
             name: body.name,
-            root_path: body.root_path,
         })
         .map(Json)
         .map_err(WebApiError::from)

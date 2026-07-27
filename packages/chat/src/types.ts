@@ -1,4 +1,4 @@
-import type { acp } from "@ora/contracts";
+import type { acp, SessionPermissionRequest } from "@ora/contracts";
 
 /** Identifies who produced a rendered chat message. */
 export type ChatMessageRole = "user" | "assistant";
@@ -80,10 +80,9 @@ export interface ChatTurn {
 /** Holds the in-memory chat state isolated to one stable Ora session identifier. */
 export interface SessionConversation {
   turns: ChatTurn[];
+  isLoaded: boolean;
+  isLoading: boolean;
+  isResponding: boolean;
+  pendingPermissions: SessionPermissionRequest[];
   error: string | null;
-}
-
-/** Returns whether the conversation currently owns an active response turn. */
-export function isConversationResponding(conversation: SessionConversation | undefined): boolean {
-  return conversation?.turns.at(-1)?.status === "streaming";
 }

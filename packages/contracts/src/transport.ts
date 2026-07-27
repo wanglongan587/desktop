@@ -9,9 +9,25 @@ export type ContractTransportRequest = {
   headers: Record<string, string>;
 };
 
+export type ContractCallOptions = {
+  readonly signal?: AbortSignal;
+};
+
 export interface ContractTransport {
-  send<TResponse>(request: ContractTransportRequest): Promise<TResponse>;
+  send<TResponse>(
+    request: ContractTransportRequest,
+    options?: ContractCallOptions,
+  ): Promise<TResponse>;
+  stream<TEvent>(
+    request: ContractTransportRequest,
+    options?: ContractCallOptions,
+  ): AsyncIterable<TEvent>;
 }
+
+export type ContractStreamFrame<TEvent> =
+  | { type: "data"; data: TEvent }
+  | { type: "error"; error: ContractErrorPayload }
+  | { type: "end" };
 
 export type ContractErrorPayload = {
   code: string;

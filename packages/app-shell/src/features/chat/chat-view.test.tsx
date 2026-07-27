@@ -1,22 +1,146 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import type { ChatTurn } from "@ora/chat";
+import type { ChatMessage, ChatThought, ChatToolCall, ChatTurn, ChatTurnItem } from "@ora/chat";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { TooltipProvider } from "@ora/ui";
 import { AppI18nProvider } from "../../i18n/i18n";
+import { ContractsClientContext } from "../../contracts-client-context";
+import { createMockClient, createMockClientState } from "../../test/mock-client";
 import { ChatView } from "./chat-view";
 import { Composer } from "./composer";
+import { ConversationNavigator } from "./conversation-navigator";
 import { MessageList } from "./message-list";
-import type { ChatSuggestion } from "../../lib/types";
 
-const TEST_SUGGESTIONS: readonly ChatSuggestion[] = [
-  { id: "chat", text: { "zh-CN": "解释 greeting 的工作方式", "en-US": "Explain greeting" } },
-  { id: "success", text: { "zh-CN": "实现并验证 greeting", "en-US": "Implement greeting" } },
-  { id: "failure", text: { "zh-CN": "修改不存在的文件", "en-US": "Modify missing file" } },
-];
+/** Stale-time-zero QueryClient so tests don't need to wait for refetch intervals. */
+function createTestQueryClient() {
+  return new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: 0 },
+      mutations: { retry: false },
+    },
+  });
+}
 
-/** Renders chat components with the same isolated i18n provider as AppShell. */
-function renderWithI18n(element: React.ReactNode) {
-  return render(<AppI18nProvider>{element}</AppI18nProvider>);
+/** Renders chat components wrapped in all providers required by the app shell. */
+function renderWithI18n(element: ReactNode) {
+  const client = createMockClient(createMockClientState());
+  const queryClient = createTestQueryClient();
+  // A wrapper (rather than a one-off wrapped element) so `rerender` re-applies
+  // every provider — the model selector reads the contracts client on each pass.
+  const wrapper = ({ children }: { children: ReactNode }) =>
+    createElement(
+      QueryClientProvider,
+      { client: queryClient },
+      createElement(
+        ContractsClientContext.Provider,
+        { value: client },
+        createElement(AppI18nProvider, null, children),
+      ),
+    );
+  return {
+    ...render(element, { wrapper }),
+    client,
+    queryClient,
+  };
+}
+
+/** Builds one response turn so tests can describe threads without protocol plumbing. */
+function turn(
+  id: string,
+  content: string,
+  createdAt: number,
+  items: ChatTurnItem[] = [],
+  status: ChatTurn["status"] = "completed",
+): ChatTurn {
+  return {
+    id,
+    userMessage: { kind: "message", id: `${id}-user`, role: "user", content, createdAt },
+    items,
+    status,
+    stopReason: null,
+    error: null,
+    createdAt,
+  };
+}
+
+/** Builds one assistant text item that lives inside a response turn. */
+function assistantItem(id: string, content: string, createdAt: number): ChatMessage {
+  return { kind: "message", id, role: "assistant", content, createdAt };
+}
+
+/** Builds one in-progress tool call so tests can stand in for non-text agent work. */
+function toolCallItem(id: string, createdAt: number): ChatToolCall {
+  return {
+    kind: "toolCall",
+    id,
+    title: "Read file",
+    status: "in_progress",
+    content: [],
+    locations: [],
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+/** Builds one completed file read with a structured path for activity summaries. */
+function completedReadItem(id: string, path: string, createdAt: number): ChatToolCall {
+  return {
+    kind: "toolCall",
+    id,
+    title: `Read ${path}`,
+    toolKind: "read",
+    status: "completed",
+    content: [],
+    locations: [{ path }],
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+/** Builds one live file read so the header can expose its current structured target. */
+function activeReadItem(id: string, path: string, createdAt: number): ChatToolCall {
+  return {
+    ...completedReadItem(id, path, createdAt),
+    status: "in_progress",
+  };
+}
+
+/** Builds one completed edit with a path for change-group coverage. */
+function completedEditItem(id: string, path: string, createdAt: number): ChatToolCall {
+  return {
+    kind: "toolCall",
+    id,
+    title: path,
+    toolKind: "edit",
+    status: "completed",
+    content: [],
+    locations: [{ path }],
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+/** Builds one completed command for command-group coverage. */
+function completedCommandItem(id: string, title: string, createdAt: number): ChatToolCall {
+  return {
+    kind: "toolCall",
+    id,
+    title,
+    toolKind: "execute",
+    status: "completed",
+    content: [],
+    locations: [],
+    createdAt,
+    updatedAt: createdAt,
+  };
+}
+
+/** Builds one reasoning update for activity timeline coverage. */
+function thoughtItem(id: string, content: string, createdAt: number): ChatThought {
+  return { kind: "thought", id, content, createdAt };
 }
 
 describe("Composer", () => {
@@ -43,63 +167,32 @@ describe("Composer", () => {
     expect(onSend).not.toHaveBeenCalled();
     expect(textarea).toHaveValue("first\nsecond");
   });
-
-  it("shows a stop action while the response turn is active", async () => {
-    const user = userEvent.setup();
-    const onCancel = vi.fn();
-    renderWithI18n(<Composer onSend={() => {}} onCancel={onCancel} isResponding />);
-
-    await user.click(screen.getByRole("button", { name: /停止生成|Stop generating/ }));
-
-    expect(onCancel).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("button", { name: /发送消息|Send message/ })).not.toBeInTheDocument();
-  });
 });
 
 describe("ChatView", () => {
-  it("offers the temporary ACP mock scenarios in a new conversation", async () => {
-    const user = userEvent.setup();
-    const onSend = vi.fn();
-    renderWithI18n(
-      <ChatView
-        conversation={undefined}
-        userName="Eric"
-        isResponding={false}
-        error={null}
-        suggestions={TEST_SUGGESTIONS}
-        onSend={onSend}
-        onCancel={() => {}}
-      />,
-    );
-
-    expect(screen.getByRole("button", { name: "解释 greeting 的工作方式" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "实现并验证 greeting" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "修改不存在的文件" }));
-
-    expect(onSend).toHaveBeenCalledWith("修改不存在的文件");
-  });
-
   it("disables composition and shows the unavailable Agent session error", () => {
     renderWithI18n(
       <ChatView
-        conversation={undefined}
+        turns={[]}
         userName="Eric"
         isResponding={false}
         error="Agent session unavailable"
         disabled
         onSend={() => {}}
-        onCancel={() => {}}
       />,
     );
 
     expect(screen.getByRole("alert")).toHaveTextContent("Agent session unavailable");
     expect(screen.getByRole("textbox")).toBeDisabled();
+    expect(screen.getAllByRole("button")).toEqual(
+      expect.arrayContaining([expect.objectContaining({ disabled: true })]),
+    );
   });
 
   it("keeps the disabled hint shut when the pointer never left the enabled composer", async () => {
     const user = userEvent.setup();
     const view = renderWithI18n(
-      <ChatView conversation={undefined} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
+      <ChatView turns={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
     );
 
     // Hover the composer while it has no hint. The real app then slides the
@@ -107,9 +200,8 @@ describe("ChatView", () => {
     await user.hover(screen.getByRole("textbox"));
 
     view.rerender(
-      <AppI18nProvider>
         <ChatView
-          conversation={undefined}
+          turns={[]}
           userName="Eric"
           isResponding={false}
           error={null}
@@ -117,7 +209,6 @@ describe("ChatView", () => {
           disabledHint="pick a project"
           onSend={() => {}}
         />
-      </AppI18nProvider>,
     );
 
     expect(screen.queryByText("pick a project")).toBeNull();
@@ -126,7 +217,7 @@ describe("ChatView", () => {
   it("renders execution context immediately above the composer surface", () => {
     renderWithI18n(
       <ChatView
-        conversation={undefined}
+        turns={[]}
         userName="Eric"
         isResponding={false}
         error={null}
@@ -143,25 +234,93 @@ describe("ChatView", () => {
     expect(context?.nextElementSibling?.querySelector('[data-slot="composer"]')).toBe(composer);
   });
 
-  it("slides the same composer node down when the first turn arrives", () => {
+  it("shows the history loading indicator without the landing copy while a session loads", () => {
+    renderWithI18n(
+      <ChatView turns={[]} userName="Eric" isResponding={false} isLoading error={null} onSend={() => {}} />,
+    );
+
+    // Thread layout: the loading status stands in for the yet-to-arrive turns and
+    // the landing heading/suggestions are gone, so the composer has slid down.
+    expect(screen.getByRole("status", { name: /加载历史|Loading history/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading")).toBeNull();
+    expect(screen.queryByRole("textbox")).toBeInTheDocument();
+  });
+
+  it("slides the composer down once when a session is selected, not again when its turns land", () => {
+    // Same FLIP harness as below: jsdom lacks layout and the Web Animations API.
+    let top = 300;
+    const rectSpy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(() => ({ top }) as DOMRect);
+    const animate = vi.fn();
+    Object.defineProperty(Element.prototype, "animate", {
+      configurable: true,
+      writable: true,
+      value: animate,
+    });
+
+    // Landing state: nothing selected, composer centered.
+    const view = renderWithI18n(
+      <ChatView turns={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
+    );
+
+    // Selecting a session flips it into the loading thread layout: the composer
+    // slides down here, before any turn exists.
+    top = 800;
+    view.rerender(
+        <ChatView turns={[]} userName="Eric" isResponding={false} isLoading error={null} onSend={() => {}} />
+    );
+    expect(animate).toHaveBeenCalledTimes(1);
+
+    // History arriving is not a landing→thread transition, so it must not replay
+    // the slide — otherwise the composer animates twice for one selection.
+    view.rerender(
+        <ChatView
+          turns={[turn("turn-1", "hello", 100)]}
+          userName="Eric"
+          isResponding={false}
+          error={null}
+          onSend={() => {}}
+        />
+    );
+    expect(animate).toHaveBeenCalledTimes(1);
+
+    rectSpy.mockRestore();
+    Reflect.deleteProperty(Element.prototype, "animate");
+  });
+
+  it("slides the same composer node down when the first message arrives", () => {
     // jsdom has no layout and no Web Animations API, so both are stood up here:
     // the rects drive the FLIP delta and the spy captures the resulting keyframes.
     let top = 300;
-    const rectSpy = vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(() => ({ top }) as DOMRect);
+    const rectSpy = vi
+      .spyOn(Element.prototype, "getBoundingClientRect")
+      .mockImplementation(() => ({ top }) as DOMRect);
     const animate = vi.fn();
-    Object.defineProperty(Element.prototype, "animate", { configurable: true, writable: true, value: animate });
+    Object.defineProperty(Element.prototype, "animate", {
+      configurable: true,
+      writable: true,
+      value: animate,
+    });
 
     const view = renderWithI18n(
-      <ChatView conversation={undefined} userName="Eric" isResponding={false} error={null} onSend={() => {}} onCancel={() => {}} />,
+      <ChatView turns={[]} userName="Eric" isResponding={false} error={null} onSend={() => {}} />,
     );
     const landingComposer = screen.getByRole("textbox");
+
     top = 800;
     view.rerender(
-      <AppI18nProvider>
-        <ChatView conversation={{ turns: [createTurn()], error: null }} userName="Eric" isResponding={false} error={null} onSend={() => {}} onCancel={() => {}} />
-      </AppI18nProvider>,
+        <ChatView
+          turns={[turn("turn-1", "hello", 100)]}
+          userName="Eric"
+          isResponding={false}
+          error={null}
+          onSend={() => {}}
+        />
     );
 
+    // Identity is the whole point: a remounted composer cannot be animated and
+    // would drop whatever the user had typed.
     expect(screen.getByRole("textbox")).toBe(landingComposer);
     expect(animate).toHaveBeenCalledWith(
       [{ transform: "translateY(-500px)" }, { transform: "translateY(0)" }],
@@ -174,423 +333,201 @@ describe("ChatView", () => {
 });
 
 describe("MessageList", () => {
-  it("reveals conversation anchors for long threads and jumps to the selected turn", async () => {
+  it("compresses consecutive reads into a second-level disclosure", async () => {
     const user = userEvent.setup();
-    const turns = ["Inspect the runtime", "Review   the\nimplementation", "Run the test suite"].map((content, index) =>
-      createTurn({
-        id: `turn-${index + 1}`,
-        userMessage: {
-          kind: "message",
-          id: `user-${index + 1}`,
-          role: "user",
-          content,
-          createdAt: 100 + index,
-        },
-      }),
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "Read the reports", 100, [
+            completedReadItem("read-1", "a.md", 200),
+            completedReadItem("read-2", "b.md", 300),
+            completedReadItem("read-3", "c.md", 400),
+            completedReadItem("read-4", "d.md", 500),
+          ]),
+        ]}
+        userName="Eric"
+        isResponding={false}
+      />,
     );
-    renderWithI18n(<MessageList turns={turns} userName="Eric" isResponding={false} />);
 
-    const navigation = screen.getByRole("navigation", { name: /对话历史|Conversation history/ });
-    expect(navigation).toHaveClass("fixed");
-    const anchorList = screen.getByTestId("conversation-anchor-list");
-    expect(anchorList).toHaveClass("max-h-48", "overflow-y-auto");
-    expect(anchorList).not.toHaveClass("gap-2");
-    Object.defineProperty(anchorList, "scrollHeight", { configurable: true, value: 400 });
-    Object.defineProperty(anchorList, "clientHeight", { configurable: true, value: 192 });
-    const firstTick = anchorList.querySelector<HTMLElement>("[data-conversation-tick]");
-    Object.defineProperty(firstTick, "offsetHeight", { configurable: true, value: 20 });
-    anchorList.scrollTop = 0;
-    fireEvent.wheel(anchorList, { deltaY: 120 });
-    expect(anchorList.scrollTop).toBe(20);
-    fireEvent.wheel(anchorList, { deltaY: -120 });
-    expect(anchorList.scrollTop).toBe(0);
-    const secondQuestionButton = screen.getByRole("button", { name: /问题 2：Review the implementation|Question 2: Review the implementation/i });
-    const secondResponseButton = screen.getByRole("button", { name: /回复 2：Done|Response 2: Done/i });
-    const thirdQuestionButton = screen.getByRole("button", { name: /问题 3：Run the test suite|Question 3: Run the test suite/i });
-    const thirdResponseButton = screen.getByRole("button", { name: /回复 3：Done|Response 3: Done/i });
-    const previousMessageButton = screen.getByRole("button", { name: /上一条消息|Previous message/ });
-    const nextMessageButton = screen.getByRole("button", { name: /下一条消息|Next message/ });
-    expect(thirdResponseButton).toHaveAttribute("aria-current", "location");
-    expect(previousMessageButton).toHaveClass("opacity-0");
+    await user.click(screen.getByRole("button", { name: /文件读取完成|File reading complete/ }));
+    const readBatch = screen.getByRole("button", { name: /读取 4 个文件|Read 4 files/ });
+    expect(screen.queryByRole("button", { name: /读取\s*a\.md|Read\s*a\.md/ })).toBeNull();
 
-    const secondQuestionLine = secondQuestionButton.firstElementChild as HTMLElement;
-    const secondResponseLine = secondResponseButton.firstElementChild as HTMLElement;
-    expect(secondQuestionButton).toHaveClass("h-4", "shrink-0");
-    expect(secondQuestionLine).toHaveStyle({ width: "28%" });
-    expect(secondResponseLine).toHaveStyle({ width: "46%" });
-    vi.spyOn(secondQuestionButton, "getBoundingClientRect").mockReturnValue({ left: 600, top: 210, height: 12 } as DOMRect);
-    const elementRectSpy = vi.spyOn(HTMLDivElement.prototype, "getBoundingClientRect").mockReturnValue({ width: 224, height: 80 } as DOMRect);
-    await user.hover(secondQuestionButton);
-    const preview = screen.getByTestId("conversation-anchor-preview");
-    expect(preview).toHaveStyle({ left: "368px", top: "216px" });
-    expect(preview).toHaveClass("animate-preview-fade-in");
-    expect(preview).not.toHaveClass("animate-in", "slide-in-from-right-1");
-    expect(preview).toHaveTextContent("Review the implementation");
-    expect(secondQuestionLine).toHaveStyle({ width: "58%" });
-    expect(secondResponseLine).toHaveStyle({ width: "46%" });
-
-    vi.spyOn(secondQuestionButton, "getBoundingClientRect").mockImplementation(() => ({
-      left: 600,
-      top: 210 - anchorList.scrollTop,
-      bottom: 226 - anchorList.scrollTop,
-      height: 16,
-    }) as DOMRect);
-    vi.spyOn(secondResponseButton, "getBoundingClientRect").mockImplementation(() => ({
-      left: 600,
-      top: 226 - anchorList.scrollTop,
-      bottom: 242 - anchorList.scrollTop,
-      height: 16,
-    }) as DOMRect);
-    fireEvent.mouseMove(anchorList, { clientX: 610, clientY: 218 });
-    fireEvent.wheel(anchorList, { clientX: 610, clientY: 218, deltaY: 16 });
-    await waitFor(() => expect(screen.getByTestId("conversation-anchor-preview")).toHaveTextContent("Done"));
-    expect(screen.getByTestId("conversation-anchor-preview")).toBe(preview);
-    expect(preview).not.toHaveClass("invisible");
-
-    const maximumScrollTop = anchorList.scrollHeight - anchorList.clientHeight;
-    let boundedScrollTop = maximumScrollTop;
-    Object.defineProperty(anchorList, "scrollTop", {
-      configurable: true,
-      get: () => boundedScrollTop,
-      set: (value: number) => {
-        boundedScrollTop = Math.max(0, Math.min(maximumScrollTop, value));
-      },
-    });
-    const requestAnimationFrameSpy = vi.spyOn(window, "requestAnimationFrame");
-    fireEvent.wheel(anchorList, { clientX: 610, clientY: 218, deltaY: 120 });
-    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
-    expect(screen.getByTestId("conversation-anchor-preview")).toHaveTextContent("Done");
-    boundedScrollTop = 0;
-    fireEvent.wheel(anchorList, { clientX: 610, clientY: 218, deltaY: -120 });
-    expect(requestAnimationFrameSpy).not.toHaveBeenCalled();
-    expect(screen.getByTestId("conversation-anchor-preview")).toHaveTextContent("Done");
-    requestAnimationFrameSpy.mockRestore();
-
-    await user.unhover(secondQuestionButton);
-    expect(screen.queryByTestId("conversation-anchor-preview")).not.toBeInTheDocument();
-    elementRectSpy.mockRestore();
-
-    const list = screen.getByTestId("message-list");
-    const secondQuestion = list.querySelector<HTMLElement>('[data-conversation-anchor="turn-2:user"]');
-    const secondResponse = list.querySelector<HTMLElement>('[data-conversation-anchor="turn-2:response"]');
-    const thirdQuestion = list.querySelector<HTMLElement>('[data-conversation-anchor="turn-3:user"]');
-    const thirdResponse = list.querySelector<HTMLElement>('[data-conversation-anchor="turn-3:response"]');
-    expect(secondQuestion).not.toBeNull();
-    expect(secondResponse).not.toBeNull();
-    expect(thirdQuestion).not.toBeNull();
-    expect(thirdResponse).not.toBeNull();
-    Object.defineProperty(secondQuestion, "offsetTop", { configurable: true, value: 240 });
-    Object.defineProperty(secondResponse, "offsetTop", { configurable: true, value: 360 });
-    Object.defineProperty(thirdQuestion, "offsetTop", { configurable: true, value: 480 });
-    Object.defineProperty(thirdResponse, "offsetTop", { configurable: true, value: 600 });
-    const scrollTo = vi.fn();
-    const animateQuestion = vi.fn();
-    const animateResponse = vi.fn();
-    Object.defineProperty(list, "scrollTo", { configurable: true, value: scrollTo });
-    const questionOutline = secondQuestion?.querySelector<SVGRectElement>("[data-anchor-highlight]");
-    const responseOutline = secondResponse?.querySelector<SVGRectElement>("[data-anchor-highlight]");
-    expect(questionOutline).not.toBeNull();
-    expect(responseOutline).not.toBeNull();
-    Object.defineProperty(questionOutline, "animate", { configurable: true, value: animateQuestion });
-    Object.defineProperty(questionOutline, "getAnimations", { configurable: true, value: () => [] });
-    Object.defineProperty(responseOutline, "animate", { configurable: true, value: animateResponse });
-    Object.defineProperty(responseOutline, "getAnimations", { configurable: true, value: () => [] });
-    expect(questionOutline?.parentElement).toHaveClass("text-foreground/80");
-
-    await user.click(previousMessageButton);
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 468, behavior: "smooth" });
-    expect(thirdQuestionButton).toHaveAttribute("aria-current", "location");
-
-    await user.click(previousMessageButton);
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 348, behavior: "smooth" });
-    expect(secondResponseButton).toHaveAttribute("aria-current", "location");
-
-    await user.click(nextMessageButton);
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 468, behavior: "smooth" });
-    expect(thirdQuestionButton).toHaveAttribute("aria-current", "location");
-
-    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 900 });
-    Object.defineProperty(list, "clientHeight", { configurable: true, value: 300 });
-    list.scrollTop = 468;
-    fireEvent.scroll(list);
-    expect(thirdQuestionButton).toHaveAttribute("aria-current", "location");
-
-    await user.click(nextMessageButton);
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 588, behavior: "smooth" });
-    expect(thirdResponseButton).toHaveAttribute("aria-current", "location");
-
-    list.scrollTop = 540;
-    fireEvent.scroll(list);
-    expect(thirdResponseButton).toHaveAttribute("aria-current", "location");
-
-    fireEvent.wheel(list, { deltaY: -120 });
-    list.scrollTop = 468;
-    fireEvent.scroll(list);
-    await user.click(previousMessageButton);
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 348, behavior: "smooth" });
-    expect(secondResponseButton).toHaveAttribute("aria-current", "location");
-    animateQuestion.mockClear();
-    animateResponse.mockClear();
-
-    await user.click(secondQuestionButton);
-
-    expect(scrollTo).toHaveBeenCalledWith({ top: 228, behavior: "smooth" });
-    expect(animateQuestion).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ opacity: 0.9 }),
-      ]),
-      expect.objectContaining({ duration: 4000, easing: expect.any(String) }),
-    );
-    expect(animateResponse).not.toHaveBeenCalled();
-    expect(secondQuestionButton).toHaveAttribute("aria-current", "location");
-
-    await user.click(secondResponseButton);
-
-    expect(scrollTo).toHaveBeenLastCalledWith({ top: 348, behavior: "smooth" });
-    expect(animateResponse).toHaveBeenCalled();
-    expect(secondResponseButton).toHaveAttribute("aria-current", "location");
-
-    fireEvent.wheel(list, { deltaY: 120 });
-    list.scrollTop = 520;
-    fireEvent.scroll(list);
-
-    expect(thirdQuestionButton).toHaveAttribute("aria-current", "location");
+    await user.click(readBatch);
+    expect(screen.getByRole("button", { name: /读取\s*a\.md|Read\s*a\.md/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /读取\s*d\.md|Read\s*d\.md/ })).toBeVisible();
   });
 
-  it("keeps the conversation navigator out of short threads", () => {
-    renderWithI18n(<MessageList turns={[createTurn()]} userName="Eric" isResponding={false} />);
-
-    expect(screen.queryByRole("navigation", { name: /对话历史|Conversation history/ })).not.toBeInTheDocument();
-  });
-
-  it("smoothly makes room for new anchors after the minimap reaches its height limit", () => {
-    const scrollHeightSpy = vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function () {
-      if (this.dataset.testid === "conversation-anchor-list") return this.querySelectorAll("[data-conversation-tick]").length * 16;
-      if (this.dataset.testid === "conversation-anchor-track") return this.children.length * 16;
-      return 0;
-    });
-    const clientHeightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function () {
-      return this.dataset.testid === "conversation-anchor-list" ? 192 : 0;
-    });
-    const animate = vi.fn();
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
-    const createTurns = (count: number) => Array.from({ length: count }, (_, index) => createTurn({
-      id: `overflow-turn-${index + 1}`,
-      userMessage: { kind: "message", id: `overflow-user-${index + 1}`, role: "user", content: `Prompt ${index + 1}`, createdAt: 100 + index },
-    }));
-    const view = renderWithI18n(<MessageList turns={createTurns(10)} userName="Eric" isResponding={false} />);
-    animate.mockClear();
-
-    view.rerender(
-      <AppI18nProvider>
-        <MessageList turns={createTurns(11)} userName="Eric" isResponding={false} />
-      </AppI18nProvider>,
+  it("keeps reads, edits, and commands as distinct perceptible activity groups", () => {
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "Update and verify the document", 100, [
+            completedReadItem("read-1", "report.md", 200),
+            completedEditItem("edit-1", "report.md", 300),
+            completedEditItem("edit-2", "summary.md", 400),
+            completedCommandItem("command-1", "pnpm lint", 500),
+            completedCommandItem("command-2", "pnpm test", 600),
+          ]),
+        ]}
+        userName="Eric"
+        isResponding={false}
+      />,
     );
 
-    expect(screen.getByTestId("conversation-anchor-track").querySelectorAll("[data-conversation-tick]")).toHaveLength(22);
-    expect(animate).toHaveBeenCalledWith(
-      [{ transform: "translateY(32px)" }, { transform: "translateY(0)" }],
-      expect.objectContaining({ duration: 240, easing: expect.any(String) }),
-    );
-    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" });
-
-    scrollHeightSpy.mockRestore();
-    clientHeightSpy.mockRestore();
-    Reflect.deleteProperty(HTMLElement.prototype, "animate");
-    Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    expect(screen.getByRole("button", { name: /文件读取完成|File reading complete/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /已修改 2 个文件|Changed 2 files/ })).toBeVisible();
+    expect(screen.getByRole("button", { name: /已执行 2 条命令|Ran 2 commands/ })).toBeVisible();
   });
 
-  it("truncates long anchor previews without shortening their accessible names", async () => {
+  it("surfaces a domain-neutral current file while exploration is streaming", () => {
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "Inspect the entry point", 100, [
+            thoughtItem("thought-1", "Locating the application entry point", 200),
+            activeReadItem("read-1", "reports/q2.pdf", 300),
+          ], "streaming"),
+        ]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+
+    const activity = screen.getByRole("button", { name: /正在读取 q2\.pdf|Reading q2\.pdf/ });
+    expect(activity).toHaveTextContent(/1 个文件 · 1 次分析|1 file · 1 analysis step/);
+  });
+
+  it("condenses interleaved analysis and file reads into one expandable activity timeline", async () => {
     const user = userEvent.setup();
-    const longPrompt = "a".repeat(180);
-    const turns = [longPrompt, "second", "third"].map((content, index) => createTurn({
-      id: `long-turn-${index + 1}`,
-      userMessage: { kind: "message", id: `long-user-${index + 1}`, role: "user", content, createdAt: 100 + index },
-    }));
-    renderWithI18n(<MessageList turns={turns} userName="Eric" isResponding={false} />);
+    renderWithI18n(
+      <MessageList
+        turns={[
+          turn("turn-1", "Inspect the project", 100, [
+            thoughtItem("thought-1", "Checking project configuration", 200),
+            completedReadItem("read-1", "Cargo.toml", 300),
+            thoughtItem("thought-2", "Finding the relevant source", 400),
+            completedReadItem("read-2", "src/main.rs", 500),
+            assistantItem("assistant-1", "Done", 600),
+          ]),
+        ]}
+        userName="Eric"
+        isResponding={false}
+      />,
+    );
 
-    const anchor = screen.getByRole("button", { name: new RegExp(longPrompt) });
-    await user.hover(anchor);
+    const activity = screen.getByRole("button", { name: /文件读取完成|File reading complete/ });
+    expect(activity).toHaveTextContent(/2 个文件 · 2 次分析|2 files · 2 analysis steps/);
+    expect(screen.queryByText("Checking project configuration")).toBeNull();
 
-    const preview = screen.getByTestId("conversation-anchor-preview");
-    expect(preview).toHaveTextContent(`${"a".repeat(117)}...`);
-    expect(preview).not.toHaveTextContent(longPrompt);
+    await user.click(activity);
+    expect(screen.getByText("Cargo.toml")).toBeVisible();
+    expect(screen.getByText("main.rs")).toBeVisible();
+    const firstThought = screen.getByRole("button", { name: /Checking project configuration/ });
+    const secondThought = screen.getByRole("button", { name: /Finding the relevant source/ });
+    await user.click(firstThought);
+    expect(screen.getAllByText("Checking project configuration")).toHaveLength(2);
+
+    await user.click(secondThought);
+    expect(screen.getAllByText("Checking project configuration")).toHaveLength(1);
+    expect(screen.getAllByText("Finding the relevant source")).toHaveLength(2);
   });
 
-  it("replaces the typing indicator once a thought chunk arrives", () => {
-    const streaming = createTurn({ status: "streaming", items: [] });
-    const view = renderWithI18n(<MessageList turns={[streaming]} userName="Eric" isResponding />);
-    expect(screen.getByLabelText(/正在输入|is typing/)).toBeInTheDocument();
+  it("shows the running indicator while working but hides it as the answer streams", () => {
+    const view = renderWithI18n(
+      <MessageList turns={[turn("turn-1", "hello", 100, [], "streaming")]} userName="Eric" isResponding />,
+    );
+    // Waiting for the first output: the indicator stands in for the empty turn.
+    expect(screen.getByLabelText(/正在运行|is working/)).toBeInTheDocument();
 
+    // Answer body streaming in: the growing text is signal enough, so it hides.
     view.rerender(
-      <AppI18nProvider>
         <MessageList
-          turns={[createTurn({
-            status: "streaming",
-            items: [{ kind: "thought", id: "thought-1", content: "Inspecting", createdAt: 200 }],
-          })]}
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
           userName="Eric"
           isResponding
         />
-      </AppI18nProvider>,
+    );
+    expect(screen.queryByLabelText(/正在运行|is working/)).not.toBeInTheDocument();
+
+    // Back to working — a tool call trails the text — so the indicator returns.
+    view.rerender(
+        <MessageList
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200), toolCallItem("tool-1", 300)], "streaming")]}
+          userName="Eric"
+          isResponding
+        />
+    );
+    expect(screen.getByLabelText(/正在运行|is working/)).toBeInTheDocument();
+
+    // Clears once the turn settles and the agent is no longer responding.
+    view.rerender(
+        <MessageList
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "completed")]}
+          userName="Eric"
+          isResponding={false}
+        />
+    );
+    expect(screen.queryByLabelText(/正在运行|is working/)).not.toBeInTheDocument();
+  });
+
+  it("keeps scrolling as streamed content grows within the same message", () => {
+    const view = renderWithI18n(
+      <MessageList
+        turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+    const list = screen.getByTestId("message-list");
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
+    list.scrollTop = 0;
+
+    view.rerender(
+        <MessageList
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)], "streaming")]}
+          userName="Eric"
+          isResponding
+        />
     );
 
-    expect(screen.queryByLabelText(/正在输入|is typing/)).not.toBeInTheDocument();
-    expect(screen.getByText("Inspecting")).toBeInTheDocument();
-  });
-
-  it("renders plan, tool lifecycle, unified diff, and raw protocol data", async () => {
-    const user = userEvent.setup();
-    const turn = createTurn({
-      items: [
-        {
-          kind: "plan",
-          id: "plan-1",
-          entries: [{ content: "Update app", priority: "high", status: "completed" }],
-          createdAt: 200,
-          updatedAt: 300,
-        },
-        {
-          kind: "toolCall",
-          id: "tool-1",
-          title: "Update the greeting implementation",
-          toolKind: "edit",
-          status: "completed",
-          locations: [{ path: "/workspace/ora/src/app.ts", line: 1 }],
-          content: [{
-            type: "diff",
-            path: "/workspace/ora/src/app.ts",
-            oldText: "return name;\n",
-            newText: "return name.trim();\n",
-          }],
-          rawInput: { path: "/workspace/ora/src/app.ts" },
-          rawOutput: { changed: true },
-          createdAt: 200,
-          updatedAt: 300,
-        },
-      ],
-    });
-    renderWithI18n(<MessageList turns={[turn]} userName="Eric" isResponding={false} />);
-
-    await user.click(screen.getByText("Update the greeting implementation"));
-
-    expect(screen.getAllByTitle("/workspace/ora/src/app.ts")).toHaveLength(2);
-    expect(screen.getByText("return name.trim();")).toBeInTheDocument();
-    expect(screen.getByText(/原始数据|Raw data/)).toBeInTheDocument();
-  });
-
-  it("groups adjacent exploration tools into one expandable activity summary", async () => {
-    const user = userEvent.setup();
-    const readTool = (id: string, path: string) => ({
-      kind: "toolCall" as const,
-      id,
-      title: `Read ${path}`,
-      toolKind: "read" as const,
-      status: "completed" as const,
-      locations: [{ path }],
-      content: [],
-      createdAt: 200,
-      updatedAt: 300,
-    });
-    const turn = createTurn({
-      items: [
-        readTool("read-1", "/workspace/ora/src/app.ts"),
-        readTool("read-2", "/workspace/ora/src/store.ts"),
-        { ...readTool("search-1", "/workspace/ora/src/types.ts"), title: "Search types", toolKind: "search" as const },
-        readTool("read-4", "/workspace/ora/src/client.ts"),
-      ],
-    });
-    renderWithI18n(<MessageList turns={[turn]} userName="Eric" isResponding={false} />);
-
-    const summary = screen.getByRole("button", { name: /已分析 4 项资源|Analyzed 4 resources/ });
-    expect(summary).toHaveTextContent("app.ts, store.ts, types.ts +1");
-    expect(screen.queryByText("Read /workspace/ora/src/app.ts")).not.toBeInTheDocument();
-
-    await user.click(summary);
-
-    expect(screen.getByText("Read /workspace/ora/src/app.ts")).toBeInTheDocument();
-    expect(screen.getByText("Read /workspace/ora/src/client.ts")).toBeInTheDocument();
-  });
-
-  it("keeps a non-read tool between separate read activities", () => {
-    const turn = createTurn({
-      items: [
-        { kind: "toolCall", id: "read-1", title: "Read app", toolKind: "read", status: "completed", locations: [], content: [], createdAt: 200, updatedAt: 300 },
-        { kind: "toolCall", id: "edit-1", title: "Edit app", toolKind: "edit", status: "completed", locations: [], content: [], createdAt: 200, updatedAt: 300 },
-        { kind: "toolCall", id: "read-2", title: "Read test", toolKind: "read", status: "completed", locations: [], content: [], createdAt: 200, updatedAt: 300 },
-      ],
-    });
-    renderWithI18n(<MessageList turns={[turn]} userName="Eric" isResponding={false} />);
-
-    expect(screen.queryByText(/已分析 2 项资源|Analyzed 2 resources/)).not.toBeInTheDocument();
-    expect(screen.getByText("Read app")).toBeInTheDocument();
-    expect(screen.getByText("Edit app")).toBeInTheDocument();
-    expect(screen.getByText("Read test")).toBeInTheDocument();
-  });
-
-  it("counts unique resources instead of repeated tool calls", () => {
-    const path = "/workspace/ora/src/app.ts";
-    const turn = createTurn({
-      items: [
-        { kind: "toolCall", id: "read-1", title: "Read app", toolKind: "read", status: "completed", locations: [{ path }], content: [], createdAt: 200, updatedAt: 300 },
-        { kind: "toolCall", id: "read-2", title: "Read app again", toolKind: "read", status: "completed", locations: [{ path }], content: [], createdAt: 200, updatedAt: 300 },
-      ],
-    });
-    renderWithI18n(<MessageList turns={[turn]} userName="Eric" isResponding={false} />);
-
-    expect(screen.getByRole("button", { name: /已分析 1 项资源|Analyzed 1 resource/ })).toBeInTheDocument();
-  });
-
-  it("summarizes adjacent file changes with aggregate diff counts", async () => {
-    const user = userEvent.setup();
-    const editTool = (id: string, path: string, oldText: string, newText: string) => ({
-      kind: "toolCall" as const,
-      id,
-      title: `Edit ${path}`,
-      toolKind: "edit" as const,
-      status: "completed" as const,
-      locations: [{ path }],
-      content: [{ type: "diff" as const, path, oldText, newText }],
-      createdAt: 200,
-      updatedAt: 300,
-    });
-    const turn = createTurn({
-      items: [
-        editTool("edit-1", "/workspace/ora/src/app.ts", "return name;\n", "return name.trim();\n"),
-        editTool("edit-2", "/workspace/ora/src/store.ts", "const ready = false;\n", "const ready = true;\n"),
-      ],
-    });
-    renderWithI18n(<MessageList turns={[turn]} userName="Eric" isResponding={false} />);
-
-    const summary = screen.getByRole("button", { name: /已修改 2 个文件|Changed 2 files/ });
-    expect(summary).toHaveTextContent("app.ts, store.ts");
-    expect(summary).toHaveTextContent("+2");
-    expect(summary).toHaveTextContent("-2");
-
-    await user.click(summary);
-
-    expect(screen.getByText("Edit /workspace/ora/src/app.ts")).toBeInTheDocument();
-    expect(screen.getByText("Edit /workspace/ora/src/store.ts")).toBeInTheDocument();
-  });
-
-  it("keeps a failed command group expanded", () => {
-    const turn = createTurn({
-      items: [
-        { kind: "toolCall", id: "command-1", title: "Run typecheck", toolKind: "execute", status: "completed", locations: [], content: [], rawOutput: { exitCode: 0 }, createdAt: 200, updatedAt: 300 },
-        { kind: "toolCall", id: "command-2", title: "Run tests", toolKind: "execute", status: "failed", locations: [], content: [], rawOutput: { exitCode: 1 }, createdAt: 200, updatedAt: 300 },
-      ],
-    });
-    renderWithI18n(<MessageList turns={[turn]} userName="Eric" isResponding={false} />);
-
-    expect(screen.getByRole("button", { name: /2 条命令执行失败|Command batch failed \(2 commands\)/ })).toBeInTheDocument();
-    expect(screen.getByText("Run typecheck")).toBeInTheDocument();
-    expect(screen.getByText("Run tests")).toBeInTheDocument();
+    expect(list.scrollTop).toBe(240);
   });
 
   it("stops chasing the tail once the reader scrolls up mid-stream", () => {
-    const view = renderWithI18n(<MessageList turns={[createTurn({ status: "streaming" })]} userName="Eric" isResponding />);
+    const view = renderWithI18n(
+      <MessageList
+        turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock", 200)], "streaming")]}
+        userName="Eric"
+        isResponding
+      />,
+    );
+    const list = screen.getByTestId("message-list");
+    Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
+
+    // Scrolling far from the bottom is the signal that the reader is reading
+    // history rather than following the stream.
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+
+    view.rerender(
+        <MessageList
+          turns={[turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)], "streaming")]}
+          userName="Eric"
+          isResponding
+        />
+    );
+
+    expect(list.scrollTop).toBe(0);
+  });
+
+  it("re-pins to the newest message when the user sends while scrolled up", () => {
+    const first = turn("turn-1", "hello", 100, [assistantItem("assistant-1", "Mock response", 200)]);
+    const view = renderWithI18n(
+      <MessageList turns={[first]} userName="Eric" isResponding={false} />,
+    );
     const list = screen.getByTestId("message-list");
     Object.defineProperty(list, "scrollHeight", { configurable: true, value: 240 });
     Object.defineProperty(list, "clientHeight", { configurable: true, value: 100 });
@@ -598,38 +535,141 @@ describe("MessageList", () => {
     fireEvent.scroll(list);
 
     view.rerender(
-      <AppI18nProvider>
         <MessageList
-          turns={[createTurn({
-            status: "streaming",
-            items: [{ kind: "message", id: "message-1", role: "assistant", content: "Growing", createdAt: 200 }],
-          })]}
+          turns={[first, turn("turn-2", "Follow-up", 300, [], "streaming")]}
           userName="Eric"
-          isResponding
+          isResponding={false}
         />
-      </AppI18nProvider>,
     );
 
-    expect(list.scrollTop).toBe(0);
+    expect(list.scrollTop).toBe(240);
   });
 });
 
-/** Builds one representative response turn for component tests. */
-function createTurn(overrides: Partial<ChatTurn> = {}): ChatTurn {
-  return {
-    id: "turn-1",
-    userMessage: {
-      kind: "message",
-      id: "user-1",
-      role: "user",
-      content: "hello",
-      createdAt: 100,
-    },
-    items: [{ kind: "message", id: "assistant-1", role: "assistant", content: "Done", createdAt: 200 }],
-    status: "completed",
-    stopReason: "end_turn",
-    error: null,
-    createdAt: 100,
-    ...overrides,
-  };
-}
+describe("ConversationNavigator", () => {
+  const turns = [
+    turn("turn-1", "**First** question", 100, [assistantItem("assistant-1", "```markdown\n# First answer\n\nWith `code` and [docs](https://example.com)\n```", 200)]),
+    turn("turn-2", "Second question", 300, [assistantItem("assistant-2", "Second answer", 400)]),
+    turn("turn-3", "Third question", 500, [assistantItem("assistant-3", "Third answer", 600)]),
+  ];
+
+  /** Keeps navigation state local so repeated clicks exercise the real hover-to-boundary transition. */
+  function StatefulNavigator() {
+    const [activeAnchorId, setActiveAnchorId] = useState("turn-2:user");
+    return <ConversationNavigator turns={turns} activeAnchorId={activeAnchorId} onNavigate={setActiveAnchorId} />;
+  }
+
+  it("moves one anchor at a time and keeps disabled boundary controls visible", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+    const view = renderWithI18n(
+      <TooltipProvider>
+        <ConversationNavigator turns={turns} activeAnchorId="turn-2:user" onNavigate={onNavigate} />
+      </TooltipProvider>,
+    );
+
+    const previousButton = screen.getByRole("button", { name: /上一条消息|Previous message/ });
+    const nextButton = screen.getByRole("button", { name: /下一条消息|Next message/ });
+    await user.click(previousButton);
+    await user.click(nextButton);
+
+    expect(onNavigate.mock.calls).toEqual([["turn-1:response"], ["turn-2:response"]]);
+
+    view.rerender(
+        <TooltipProvider>
+          <ConversationNavigator turns={turns} activeAnchorId="turn-1:user" onNavigate={onNavigate} />
+        </TooltipProvider>
+    );
+    expect(previousButton).toBeDisabled();
+    expect(previousButton).toBeVisible();
+    expect(previousButton).toHaveAccessibleName(/这是第一条消息|This is the first message/);
+    expect(nextButton).toBeEnabled();
+    await user.hover(previousButton.parentElement!);
+    expect(await screen.findByText(/这是第一条消息|This is the first message/)).toBeVisible();
+
+    view.rerender(
+        <TooltipProvider>
+          <ConversationNavigator turns={turns} activeAnchorId="turn-3:response" onNavigate={onNavigate} />
+        </TooltipProvider>
+    );
+    expect(previousButton).toBeEnabled();
+    expect(nextButton).toBeDisabled();
+    expect(nextButton).toBeVisible();
+    expect(nextButton).toHaveAccessibleName(/这是最后一条消息|This is the last message/);
+    await user.hover(nextButton.parentElement!);
+    expect(await screen.findByText(/这是最后一条消息|This is the last message/)).toBeVisible();
+  });
+
+  it("opens the boundary hint when repeated clicks disable the button under the pointer", async () => {
+    const user = userEvent.setup();
+    renderWithI18n(
+      <TooltipProvider>
+        <StatefulNavigator />
+      </TooltipProvider>,
+    );
+
+    const previousButton = screen.getByRole("button", { name: /上一条消息|Previous message/ });
+    await user.click(previousButton);
+    await user.click(previousButton);
+    expect(previousButton).toBeDisabled();
+    expect(await screen.findByText(/这是第一条消息|This is the first message/)).toBeVisible();
+
+    const nextButton = screen.getByRole("button", { name: /下一条消息|Next message/ });
+    for (let index = 0; index < 5; index += 1) await user.click(nextButton);
+    expect(nextButton).toBeDisabled();
+    expect(await screen.findByText(/这是最后一条消息|This is the last message/)).toBeVisible();
+  });
+
+  it("shows no question heading in previews and labels responses as Ora", () => {
+    renderWithI18n(
+      <ConversationNavigator turns={turns} activeAnchorId="turn-2:user" onNavigate={() => {}} />,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /问题 1|Question 1/ }), { clientY: 10 });
+    const questionPreview = screen.getByTestId("conversation-anchor-preview");
+    expect(questionPreview).toHaveTextContent("First question");
+    expect(questionPreview.querySelector("strong")).toHaveTextContent("First");
+    expect(questionPreview).not.toHaveTextContent(/问题 1|Question 1/);
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /回复 1|Response 1/ }), { clientY: 10 });
+    const responsePreview = screen.getByTestId("conversation-anchor-preview");
+    expect(responsePreview).toHaveTextContent("OraFirst answer With code and docs");
+    expect(responsePreview.querySelector("p.font-semibold")).toHaveTextContent("First answer");
+    expect(responsePreview.querySelector("code")).toHaveTextContent("code");
+    expect(responsePreview.querySelector("a")).toBeNull();
+    expect(responsePreview.querySelector("pre")).toBeNull();
+    expect(responsePreview).not.toHaveTextContent(/回复 1|Response 1/);
+  });
+
+  it("parses complete Markdown before visually clipping long previews", () => {
+    const longMarkdown = `${"prefix ".repeat(20)}**complete marker**`;
+    const longTurns = [
+      turn("long-1", "Question", 100, [assistantItem("long-answer", longMarkdown, 200)]),
+      turns[1],
+      turns[2],
+    ];
+    renderWithI18n(
+      <ConversationNavigator turns={longTurns} activeAnchorId="long-1:response" onNavigate={() => {}} />,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /回复 1|Response 1/ }), { clientY: 10 });
+    expect(screen.getByTestId("conversation-anchor-preview").querySelector("strong")).toHaveTextContent("complete marker");
+  });
+
+  it("renders fenced code as an unframed compact excerpt", () => {
+    const codeTurns = [
+      turn("code-1", "Question", 100, [assistantItem("code-answer", "```python\n# Python example\ndef fibonacci(n):\n    return n\n```", 200)]),
+      turns[1],
+      turns[2],
+    ];
+    renderWithI18n(
+      <ConversationNavigator turns={codeTurns} activeAnchorId="code-1:response" onNavigate={() => {}} />,
+    );
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /回复 1|Response 1/ }), { clientY: 10 });
+    const codeBlock = screen.getByTestId("conversation-anchor-preview").querySelector("[data-preview-code-block]");
+    expect(codeBlock).toHaveTextContent("# Python example def fibonacci(n): return n");
+    expect(codeBlock).toHaveClass("border-l-2", "pl-2");
+    expect(codeBlock).not.toHaveClass("bg-muted", "rounded-sm");
+  });
+});

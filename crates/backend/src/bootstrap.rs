@@ -1,4 +1,5 @@
 use crate::agent::AgentApi;
+use crate::agent_runtime::{AgentRuntimeManager, SessionEventStream};
 use crate::clock::SystemClock;
 use crate::error::{BackendError, BackendErrorKind};
 use crate::project::ProjectApi;
@@ -17,6 +18,7 @@ use thiserror::Error;
 pub struct BackendPaths {
     pub database_path: PathBuf,
     pub worktree_root: PathBuf,
+    pub home_directory: PathBuf,
 }
 
 /// Reports failures that prevent the shared backend from opening persistent state.
@@ -30,6 +32,8 @@ pub enum BackendBootstrapError {
     },
     #[error("failed to bootstrap backend database")]
     Database(#[source] ora_db::DatabaseError),
+    #[error("failed to initialize agent runtime")]
+    AgentRuntime(#[source] BackendError),
 }
 
 /// Owns the concrete persisted use-case composition shared by Web and Tauri adapters.
@@ -40,6 +44,7 @@ pub struct Backend {
     project: Arc<ProjectApi>,
     task: Arc<TaskApi>,
     session: Arc<SessionApi>,
+    agent_runtime: Arc<AgentRuntimeManager>,
     skill: Arc<SkillApi>,
     agent: Arc<AgentApi>,
 }
@@ -60,11 +65,14 @@ impl Backend {
             .map_err(BackendBootstrapError::Database)?;
         let clock = SystemClock;
         let worktree_root = Arc::new(RwLock::new(paths.worktree_root));
+        let agent_runtime = AgentRuntimeManager::new(pool.clone(), paths.home_directory, clock)
+            .map_err(BackendBootstrapError::AgentRuntime)?;
 
         Ok(Self {
             project: Arc::new(ProjectApi::new(pool.clone(), clock)),
             task: Arc::new(TaskApi::new(pool.clone(), worktree_root.clone(), clock)),
-            session: Arc::new(SessionApi::new(pool.clone(), clock)),
+            session: Arc::new(SessionApi::new(pool.clone())),
+            agent_runtime: Arc::new(agent_runtime),
             skill: Arc::new(SkillApi::new(pool.clone(), clock)),
             agent: Arc::new(AgentApi::new(pool.clone(), clock)),
             pool,
@@ -88,6 +96,24 @@ impl Backend {
         })?;
         *configured_root = worktree_root;
         Ok(())
+    }
+
+    /// Resolves the on-disk git worktree directory that backs one task.
+    ///
+    /// Reuses the same live resolution the agent runtime performs before spawning a
+    /// provider, so the path always matches where the session actually runs. Fails
+    /// when the task has no active worktree on disk.
+    pub fn resolve_task_cwd(&self, task_id: &str) -> Result<PathBuf, BackendError> {
+        crate::task::resolve_task_cwd(&self.pool, &ora_domain::TaskId::new(task_id))
+    }
+
+    /// Reads the host identity for the sidebar profile: global git config first,
+    /// falling back to the authenticated GitHub CLI account when git has no name set.
+    pub fn read_git_identity(
+        &self,
+        _request: GetGitIdentityRequest,
+    ) -> Result<GitIdentityResponse, BackendError> {
+        Ok(crate::identity::resolve_git_identity())
     }
 
     /// Creates one project through the shared application composition.
@@ -123,7 +149,7 @@ impl Backend {
         &self,
         request: DeleteProjectRequest,
     ) -> Result<DeleteProjectResponse, BackendError> {
-        self.project.delete(request).map_err(BackendError::from)
+        self.project.delete(request)
     }
 
     /// Creates one task through the shared application composition.
@@ -153,15 +179,23 @@ impl Backend {
         &self,
         request: DeleteTaskRequest,
     ) -> Result<DeleteTaskResponse, BackendError> {
-        self.task.delete(request).map_err(BackendError::from)
+        self.task.delete(request)
     }
 
     /// Creates one session through the shared application composition.
-    pub fn create_session(
+    pub async fn create_session(
         &self,
         request: CreateSessionRequest,
     ) -> Result<CreateSessionResponse, BackendError> {
-        self.session.create(request).map_err(BackendError::from)
+        self.agent_runtime.create_session(request).await
+    }
+
+    /// Lists model identifiers grouped by each CLI that answers discovery successfully.
+    pub async fn list_agent_models(
+        &self,
+        _request: ListAgentModelsRequest,
+    ) -> Result<ListAgentModelsResponse, BackendError> {
+        Ok(self.agent_runtime.list_agent_models().await)
     }
     /// Gets one session through the shared application composition.
     pub fn get_session(
@@ -177,19 +211,44 @@ impl Backend {
     ) -> Result<ListSessionsResponse, BackendError> {
         self.session.list(request).map_err(BackendError::from)
     }
-    /// Updates one session through the shared application composition.
-    pub fn update_session(
+    /// Streams the provider-owned history for one persisted session.
+    pub async fn load_session(
         &self,
-        request: UpdateSessionRequest,
-    ) -> Result<UpdateSessionResponse, BackendError> {
-        self.session.update(request).map_err(BackendError::from)
+        request: LoadSessionRequest,
+    ) -> Result<SessionEventStream<LoadSessionEvent>, BackendError> {
+        self.agent_runtime.load_session(request).await
     }
-    /// Deletes one session through the shared application composition.
-    pub fn delete_session(
+
+    /// Streams one text-only prompt turn for a running session.
+    pub async fn prompt_session(
+        &self,
+        request: PromptSessionRequest,
+    ) -> Result<SessionEventStream<PromptSessionEvent>, BackendError> {
+        self.agent_runtime.prompt_session(request).await
+    }
+
+    /// Delivers one validated permission response to the owning session actor.
+    pub async fn respond_to_session_permission(
+        &self,
+        request: RespondToPermissionRequest,
+    ) -> Result<RespondToPermissionResponse, BackendError> {
+        self.agent_runtime.respond_to_permission(request).await
+    }
+
+    /// Unloads one running session while retaining its provider history and Ora record.
+    pub async fn stop_session(
+        &self,
+        request: StopSessionRequest,
+    ) -> Result<StopSessionResponse, BackendError> {
+        self.agent_runtime.stop_session(request).await
+    }
+
+    /// Stops one session before removing only its Ora-owned record.
+    pub async fn delete_session(
         &self,
         request: DeleteSessionRequest,
     ) -> Result<DeleteSessionResponse, BackendError> {
-        self.session.delete(request).map_err(BackendError::from)
+        self.agent_runtime.delete_session(&request.session_id).await
     }
 
     /// Creates one skill through the shared application composition.
@@ -292,6 +351,7 @@ mod tests {
         let backend = Backend::open(BackendPaths {
             database_path: database_path.clone(),
             worktree_root: worktree_root.clone(),
+            home_directory: temporary.path().to_path_buf(),
         })
         .expect("open shared backend");
 
@@ -313,7 +373,6 @@ mod tests {
             .update_project(UpdateProjectRequest {
                 project_id: project.id.clone(),
                 name: "Ora Desktop".to_string(),
-                root_path: project.root_path.clone(),
             })
             .expect("update project")
             .project;
@@ -393,7 +452,7 @@ mod tests {
         assert_eq!(error.code(), "project_not_found");
     }
 
-    /// Verifies deletion resolves an existing worktree through Git after the creation root changes.
+    /// Verifies task deletion hides Ora records while deliberately preserving the Git worktree.
     #[test]
     fn deletes_existing_task_after_worktree_root_changes() {
         let temporary = TempDir::new().expect("create temporary backend directory");
@@ -403,6 +462,7 @@ mod tests {
         let backend = Backend::open(BackendPaths {
             database_path: temporary.path().join("ora.sqlite3"),
             worktree_root: original_worktree_root.clone(),
+            home_directory: temporary.path().to_path_buf(),
         })
         .expect("open shared backend");
         let project = backend
@@ -417,6 +477,7 @@ mod tests {
                 project_id: project.id,
                 title: "Move configuration".to_string(),
                 status: TaskStatus::Todo,
+                workspace_mode: None,
             })
             .expect("create task")
             .task;
@@ -432,9 +493,9 @@ mod tests {
             .delete_task(DeleteTaskRequest {
                 task_id: task.id.clone(),
             })
-            .expect("delete task through Git metadata");
+            .expect("delete task without Git mutation");
 
-        assert!(!original_worktree_path.exists());
+        assert!(original_worktree_path.exists());
         assert!(
             backend
                 .get_task(GetTaskRequest { task_id: task.id })

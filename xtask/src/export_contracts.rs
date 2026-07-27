@@ -1,6 +1,6 @@
 use ora_contracts::{
-    FrontendEndpoint, FrontendPathParam, FrontendQueryParam, export_typescript_bindings_to,
-    frontend_endpoints,
+    FrontendEndpoint, FrontendPathParam, FrontendQueryParam, FrontendResponseMode,
+    export_typescript_bindings_to, frontend_endpoints,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -156,6 +156,7 @@ fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
     source.push_str("  pathTemplate: string;\n");
     source.push_str("  requestType: string;\n");
     source.push_str("  responseType: string;\n");
+    source.push_str("  responseMode: \"unary\" | \"stream\";\n");
     source.push_str("  pathParams: readonly EndpointPathParam[];\n");
     source.push_str("  queryParams: readonly EndpointQueryParam[];\n");
     source.push_str("  hasJsonBody: boolean;\n");
@@ -215,6 +216,12 @@ fn render_endpoints_module(endpoints: &[FrontendEndpoint]) -> String {
         source.push_str("\",\n");
         source.push_str("    responseType: \"");
         source.push_str(endpoint.response_type);
+        source.push_str("\",\n");
+        source.push_str("    responseMode: \"");
+        source.push_str(match endpoint.response_mode() {
+            FrontendResponseMode::Unary => "unary",
+            FrontendResponseMode::Stream => "stream",
+        });
         source.push_str("\",\n");
         source.push_str("    pathParams: ");
         source.push_str(&render_path_params(endpoint.path_params));
@@ -285,10 +292,18 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "DeleteSessionResponse"
         | "GetSessionRequest"
         | "GetSessionResponse"
+        | "ListAgentModelsRequest"
+        | "ListAgentModelsResponse"
+        | "LoadSessionRequest"
+        | "LoadSessionEvent"
         | "ListSessionsRequest"
         | "ListSessionsResponse"
-        | "UpdateSessionRequest"
-        | "UpdateSessionResponse" => "session",
+        | "PromptSessionRequest"
+        | "PromptSessionEvent"
+        | "RespondToPermissionRequest"
+        | "RespondToPermissionResponse"
+        | "StopSessionRequest"
+        | "StopSessionResponse" => "session",
         "CreateSkillRequest"
         | "CreateSkillResponse"
         | "DeleteSkillRequest"
@@ -310,6 +325,7 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "UpdateAgentRequest"
         | "UpdateAgentResponse" => "agent",
         "ListDirectoryRequest" | "ListDirectoryResponse" => "file-system",
+        "GetGitIdentityRequest" | "GitIdentityResponse" => "git",
         other => panic!("unknown contract type `{other}`"),
     }
 }

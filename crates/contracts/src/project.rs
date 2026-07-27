@@ -58,14 +58,13 @@ pub struct ListProjectsResponse {
     pub projects: Vec<Project>,
 }
 
-/// Carries the full replacement payload for project updates in the first slice.
+/// Carries the mutable project name while the repository root remains immutable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "project.ts")]
 pub struct UpdateProjectRequest {
     pub project_id: String,
     pub name: String,
-    pub root_path: String,
 }
 
 /// Returns the updated project after a successful update request.
@@ -138,7 +137,6 @@ mod tests {
         let update_request = UpdateProjectRequest {
             project_id: "project-1".to_string(),
             name: "Ora Updated".to_string(),
-            root_path: "/workspace/ora-next".to_string(),
         };
         let delete_request = DeleteProjectRequest {
             project_id: "project-1".to_string(),
@@ -204,7 +202,6 @@ mod tests {
             json!({
                 "projectId": "project-1",
                 "name": "Ora Updated",
-                "rootPath": "/workspace/ora-next",
             }),
         );
         assert_serialized_json(

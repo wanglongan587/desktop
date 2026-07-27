@@ -19,6 +19,7 @@ pub fn build_app_state(runtime_config: &RuntimeConfig) -> Result<AppState, WebBo
     let backend = build_backend(
         runtime_config.database().path(),
         runtime_config.project().work_dir(),
+        runtime_config.file_system().home_directory(),
     )?;
     let pool = backend.repository_pool();
     let clock = SystemClock;
@@ -41,7 +42,11 @@ pub(crate) fn build_app_state_for_database(
     project_root: &Path,
     work_dir: &Path,
 ) -> Result<AppState, WebBootstrapError> {
-    let backend = build_backend(database_path, work_dir)?;
+    let backend = build_backend(
+        database_path,
+        work_dir,
+        project_root.parent().unwrap_or(project_root),
+    )?;
     let pool = backend.repository_pool();
     let clock = SystemClock;
 
@@ -71,23 +76,12 @@ fn reconcile_configured_project(
         Some(existing_project) if existing_project.root_path == configured_project_path => {
             Ok(existing_project.id)
         }
-        Some(existing_project) => {
-            let updated_at = clock.now_timestamp_millis();
-
-            repository
-                .update_project(Project::new(
-                    existing_project.id,
-                    existing_project.name,
-                    configured_project_path,
-                    AuditFields::new(
-                        existing_project.audit_fields.created_at,
-                        updated_at,
-                        existing_project.audit_fields.is_deleted,
-                    ),
-                ))
-                .map(|project| project.id)
-                .map_err(project_bootstrap_error)
-        }
+        Some(existing_project) => Err(WebBootstrapError::ProjectBootstrap {
+            message: format!(
+                "configured project root differs from immutable stored root: {}",
+                existing_project.root_path
+            ),
+        }),
         None => {
             let now = clock.now_timestamp_millis();
 
@@ -120,10 +114,15 @@ fn reconcile_configured_project(
 }
 
 /// Opens the shared backend while preserving the server's existing bootstrap error variants.
-fn build_backend(database_path: &Path, worktree_root: &Path) -> Result<Backend, WebBootstrapError> {
+fn build_backend(
+    database_path: &Path,
+    worktree_root: &Path,
+    home_directory: &Path,
+) -> Result<Backend, WebBootstrapError> {
     Backend::open(BackendPaths {
         database_path: database_path.to_path_buf(),
         worktree_root: worktree_root.to_path_buf(),
+        home_directory: home_directory.to_path_buf(),
     })
     .map_err(web_backend_bootstrap_error)
 }
@@ -135,6 +134,9 @@ fn web_backend_bootstrap_error(error: BackendBootstrapError) -> WebBootstrapErro
             WebBootstrapError::DataDirectoryCreate(source)
         }
         BackendBootstrapError::Database(source) => WebBootstrapError::DatabaseBootstrap(source),
+        BackendBootstrapError::AgentRuntime(source) => WebBootstrapError::ProjectBootstrap {
+            message: format!("failed to initialize agent runtime: {source}"),
+        },
     }
 }
 
@@ -278,9 +280,9 @@ mod tests {
         );
     }
 
-    /// Verifies runtime bootstrap repairs path drift without replacing the persisted project identity.
+    /// Verifies runtime bootstrap rejects path drift because project roots are immutable.
     #[test]
-    fn updates_configured_project_path_when_storage_drifts() {
+    fn rejects_configured_project_path_when_storage_drifts() {
         let temp_dir = TempDir::new().unwrap();
         let data_dir = temp_dir.path().join("bootstrap-update");
         let original_project_path = temp_dir.path().join("workspace").join("ora");
@@ -299,28 +301,18 @@ mod tests {
 
         let updated_project_path = temp_dir.path().join("workspace").join("ora-renamed");
         let updated_runtime_config = runtime_config(&data_dir, "Ora", &updated_project_path);
-        build_app_state(&updated_runtime_config).unwrap_or_else(|error| {
-            panic!("expected second runtime bootstrap to succeed: {error}")
-        });
+        let error = match build_app_state(&updated_runtime_config) {
+            Ok(_) => panic!("expected immutable project root mismatch to fail bootstrap"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("immutable stored root"));
         let repository = bootstrapped_project_repository(&database_path);
-        let updated_project = repository
+        let stored_project = repository
             .find_project_by_name("Ora")
             .unwrap()
-            .unwrap_or_else(|| panic!("expected configured project to exist after path update"));
+            .unwrap_or_else(|| panic!("expected configured project to remain stored"));
 
-        assert_eq!(updated_project.id, original_project.id);
-        assert_eq!(updated_project.name, original_project.name);
-        assert_eq!(
-            updated_project.root_path,
-            updated_project_path.to_string_lossy().to_string()
-        );
-        assert_eq!(
-            updated_project.audit_fields.created_at,
-            original_project.audit_fields.created_at
-        );
-        assert!(
-            updated_project.audit_fields.updated_at >= original_project.audit_fields.updated_at
-        );
+        assert_eq!(stored_project, original_project);
     }
 
     /// Builds one runtime configuration without mutating process environment during tests.

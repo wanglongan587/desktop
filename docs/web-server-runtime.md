@@ -6,8 +6,9 @@
 
 - It boots shared structured logging through `ora-logging`.
 - It exposes health endpoints for process liveness and runtime readiness.
-- It serves persisted HTTP CRUD routes for Project, Task, Session, Skill, and Agent through the shared `ora-backend` composition.
-- It provisions and cleans up task-owned linked worktrees as internal backend state during task lifecycle flows.
+- It serves persisted HTTP operations for Project, Task, Session, Skill, and Agent through the shared `ora-backend` composition.
+- It provisions task-owned linked worktrees during creation and leaves Git untouched during deletion.
+- It streams ACP load replay and prompt updates as bounded NDJSON responses.
 - It provides read-only server filesystem listings for the Web platform path picker.
 
 ## Database Configuration
@@ -32,11 +33,11 @@ The web server also requires a bootstrap project identity:
 Startup reconciles this configured project into the `projects` table before the runtime is marked ready.
 
 - If no visible project exists with the configured name, startup creates one row.
-- If a visible project exists with the configured name but a different stored path, startup updates that row in place.
+- If a visible project exists with the configured name but a different stored path, startup fails because project roots are immutable.
 - If both the configured name and path already match, startup leaves the row unchanged.
 - If `ORA_WORK_DIR` is unset, startup uses a `worktrees/` directory next to the configured SQLite database file.
 - Task creation resolves the project named by the request and provisions linked worktrees under `ORA_WORK_DIR/<full-task-id>`.
-- Task deletion resolves the task's stored project and branch, then obtains the authoritative existing path from Git worktree metadata. Changing `ORA_WORK_DIR` does not make older worktrees undeletable.
+- Agent Session startup resolves Task → Worktree → branch and then asks Git for the authoritative linked-worktree path supplied as the ACP session `cwd`.
 - After project reconciliation, startup also opens the synthetic web work context `surface = web`, `window_id = main` for that project and refreshes its lease immediately.
 
 ## Bind Configuration
@@ -74,9 +75,13 @@ The persisted runtime exposes CRUD routes for the supported public models:
 - `PUT /api/tasks/{task_id}`
 - `DELETE /api/tasks/{task_id}`
 - `POST /api/sessions`
+- `GET /api/agent-models`
 - `GET /api/sessions`
 - `GET /api/sessions/{session_id}`
-- `PUT /api/sessions/{session_id}`
+- `POST /api/sessions/{session_id}/load`
+- `POST /api/sessions/{session_id}/prompt`
+- `POST /api/sessions/{session_id}/permissions/respond`
+- `POST /api/sessions/{session_id}/stop`
 - `DELETE /api/sessions/{session_id}`
 - `POST /api/skills`
 - `GET /api/skills`
@@ -92,6 +97,10 @@ The persisted runtime exposes CRUD routes for the supported public models:
 
 Request and response payloads use `ora-contracts` DTO shapes, so transport behavior stays aligned with the shared application contract.
 Task payloads do not expose backend-owned worktree identifiers, and the runtime does not expose standalone public worktree CRUD endpoints.
+
+Backend construction immediately attempts `<home>/.opencode/bin/opencode acp`, `<home>/.nga/bin/nga acp`, and `<home>/.codeagentcli/bin/codeagentcli acp` children rooted at the user's home directory. Each independent supervisor performs `initialize` once per process generation and retries failures without blocking healthy CLIs or non-agent APIs. Session create calls `session/new` on the connection selected by `agentCli`; load calls `session/load` using the private provider session id and the Task worktree `cwd`. The public Session payload never exposes that id. `GET /api/agent-models` concurrently runs each CLI's bounded `models` discovery command and returns only successful groups.
+
+Load and prompt responses use `application/x-ndjson`. Each line is one complete frame. Data and control paths are separate, session-update queues are bounded at 256 items, frames are limited to 8 MiB, and overflow terminates the operation rather than dropping updates silently.
 
 The project work context routes provide the current backend-managed project selection surface.
 
@@ -114,9 +123,8 @@ The filesystem directory route supports the custom Web path picker.
 
 - `task run:web-backend` starts the Rust HTTP backend on its default port.
 - `task run:web-frontend` starts Vite with the fetch contracts transport and expects the backend to run separately.
-- `task run:web-proto` starts Vite with the MSW contracts transport and does not require the Rust backend.
 
-The Web production build always selects the fetch transport. Development startup rejects missing or unknown `VITE_ORA_CONTRACT_TRANSPORT` values so the active data source is never implicit.
+The Web frontend always uses the fetch contracts transport and talks to the Rust HTTP backend, in both development and production builds.
 
 ## Storage Behavior
 

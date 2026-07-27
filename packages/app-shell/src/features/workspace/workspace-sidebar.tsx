@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useStore } from "zustand";
 import {
   Button,
   Collapsible,
@@ -16,14 +17,16 @@ import {
 import {
   IconChevronDown,
   IconChevronRight,
+  IconAlertTriangle,
   IconDots,
+  IconEdit,
   IconFolder,
   IconGitBranch,
   IconLayoutSidebarLeftCollapse,
+  IconMessageCircle,
   IconPencil,
   IconPlus,
   IconSearch,
-  IconSettings,
   IconSquareRoundedPlus,
   IconTrash,
   IconX,
@@ -35,14 +38,19 @@ import { useTasks } from "../../state/hooks/use-tasks";
 import { useSessions } from "../../state/hooks/use-sessions";
 import { useUiStore } from "../../state/stores/ui-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
+import { useUnreadSessionsStore } from "../../state/stores/unread-sessions-store";
 import { OraMark } from "../../components/ora-mark";
+import { AgentActivityDots } from "../../components/agent-activity-dots";
+import { DragRegion } from "../../components/drag-region";
+import { useChatStore } from "../../chat-store-context";
+import { agentCliLabel } from "./agent-cli";
 
 interface WorkspaceSidebarProps {
-  user: CurrentUser | undefined;
+  user: CurrentUser;
   onSignOut: () => void;
 }
 
-/** Renders projects, worktree tasks, and agent sessions as a dense three-level navigation tree. */
+/** Renders projects, direct-chat/worktree tasks, and agent sessions as a dense three-level navigation tree. */
 export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -51,6 +59,9 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const projectsQuery = useProjects();
   const tasksQuery = useTasks();
   const sessionsQuery = useSessions();
+  const chatStore = useChatStore();
+  const conversations = useStore(chatStore, (state) => state.conversations);
+  const unread = useUnreadSessionsStore((s) => s.unread);
   // Stabilise the array references so useMemo dependencies don't change every render.
   const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
   const tasks = useMemo(() => tasksQuery.data ?? [], [tasksQuery.data]);
@@ -80,7 +91,8 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     const projectTasks = tasks.filter((task) => task.projectId === project.id);
     return project.name.toLowerCase().includes(needle)
       || projectTasks.some((task) => task.title.toLowerCase().includes(needle)
-        || sessions.some((session) => session.taskId === task.id && session.agentId.toLowerCase().includes(needle)));
+        || sessions.some((session) => session.taskId === task.id
+          && agentCliLabel(session.agentCli).toLowerCase().includes(needle)));
   }), [needle, projects, sessions, tasks]);
 
   // Expand the initial workspace tree once while preserving later manual collapse choices.
@@ -95,7 +107,6 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
 
   const openProject = (projectId: string) => {
     toggleProjectExpand(projectId);
-    selectProject(projectId);
   };
 
   const openTask = (taskId: string) => {
@@ -106,10 +117,14 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     }
   };
 
-  // Conversations are keyed by Ora session, so "new chat" is just dropping the
-  // current selection: the workspace falls back to the empty composer.
+  // Start a blank direct chat in the current project. With no project selected,
+  // keep the empty selection so the composer can explain what is missing.
   const openNewChat = () => {
-    clearSelection();
+    if (selection.projectId === null) {
+      clearSelection();
+    } else {
+      selectProject(selection.projectId);
+    }
   };
 
   // Match desktop IDE conventions while preventing the browser's new-window shortcut.
@@ -117,23 +132,28 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
     const handleNewChatShortcut = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
-        clearSelection();
+        if (selection.projectId === null) {
+          clearSelection();
+        } else {
+          selectProject(selection.projectId);
+        }
       }
     };
     window.addEventListener("keydown", handleNewChatShortcut);
     return () => window.removeEventListener("keydown", handleNewChatShortcut);
-  }, [clearSelection]);
+  }, [clearSelection, selectProject, selection.projectId]);
 
   return (
     <>
       {/* Width is owned by the enclosing ResizablePanel, so the aside just fills it. */}
       <aside className="flex size-full min-w-0 flex-col bg-sidebar text-sidebar-foreground">
-        <header className="flex h-13 items-center gap-2 px-3">
-          <OraMark size="sm" />
-          <span className="text-[13px] font-semibold tracking-[-0.01em]">Ora</span>
-          <div className="flex-1" />
+        <header className="flex h-14 items-center gap-2 px-3">
+          <DragRegion>
+            <OraMark size="default" />
+            <span className="text-[15px] font-semibold tracking-[-0.01em]">Ora</span>
+          </DragRegion>
           <Tooltip>
-            <TooltipTrigger render={<Button variant="ghost" size="icon-sm" onClick={() => setSidebarCollapsed(true)} aria-label={t("sidebar.collapse")} />}>
+            <TooltipTrigger render={<Button variant="ghost" size="icon" onClick={() => setSidebarCollapsed(true)} aria-label={t("sidebar.collapse")} />}>
               <IconLayoutSidebarLeftCollapse />
             </TooltipTrigger>
             <TooltipContent>{t("sidebar.collapse")}</TooltipContent>
@@ -145,28 +165,28 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
             type="button"
             variant="ghost"
             onClick={openNewChat}
-            className="h-9 w-full justify-start gap-2.5 px-2.5 text-[13px] font-medium"
+            className="h-10 w-full justify-start gap-2.5 px-2.5 text-sm font-medium"
           >
-            <IconSquareRoundedPlus className="size-[18px]" />
+            <IconSquareRoundedPlus className="size-5" />
             {t("chat.newThread")}
-            <span className="ml-auto text-[11px] font-normal text-muted-foreground">⌘N</span>
+            <span className="ml-auto text-xs font-normal text-muted-foreground">⌘N</span>
           </Button>
         </div>
 
         <div className="flex items-center gap-2 px-2 pb-3">
           <div className="relative min-w-0 flex-1">
-            <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <IconSearch className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               placeholder={t("sidebar.search")}
-              className="h-8 border-transparent bg-sidebar-accent/60 px-7 text-xs shadow-none hover:bg-sidebar-accent focus-visible:bg-background"
+              className="h-9 border-transparent bg-sidebar-accent/60 px-8 text-[13px] shadow-none hover:bg-sidebar-accent focus-visible:bg-background"
             />
             {query && (
               <Button
                 type="button"
                 variant="ghost"
-                size="icon-xs"
+                size="icon-sm"
                 className="absolute right-1 top-1/2 -translate-y-1/2"
                 aria-label={t("sidebar.clearSearch")}
                 onClick={() => setQuery("")}
@@ -178,37 +198,50 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
         </div>
 
         <nav className="min-h-0 flex-1 overflow-y-auto px-2 pb-3" aria-label={t("sidebar.navigation")}>
-          <div className="flex h-7 items-center px-2 text-[11px] font-medium text-muted-foreground">
+          <div className="flex h-8 items-center px-2 text-xs font-medium text-muted-foreground">
             <span>{t("sidebar.projects")}</span>
             <Tooltip>
-              <TooltipTrigger render={<Button variant="ghost" size="icon-xs" className="ml-auto" onClick={() => setDialog({ kind: "project" })} aria-label={t("sidebar.newProject")} />}>
+              <TooltipTrigger render={<Button variant="ghost" size="icon-sm" className="ml-auto" onClick={() => setDialog({ kind: "project" })} aria-label={t("sidebar.newProject")} />}>
                 <IconPlus />
               </TooltipTrigger>
               <TooltipContent>{t("sidebar.newProject")}</TooltipContent>
             </Tooltip>
           </div>
-          {loading && <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("sidebar.loading")}</p>}
+          {loading && <p className="px-2 py-6 text-center text-[13px] text-muted-foreground">{t("sidebar.loading")}</p>}
           {!loading && visibleProjects.length === 0 && (
-            <p className="px-2 py-6 text-center text-xs text-muted-foreground">{t("sidebar.empty")}</p>
+            <p className="px-2 py-6 text-center text-[13px] text-muted-foreground">{t("sidebar.empty")}</p>
           )}
           {visibleProjects.map((project) => {
             const projectTasks = tasks.filter((task) => task.projectId === project.id);
+            const projectTaskIds = new Set(projectTasks.map((task) => task.id));
+            const projectSessionIds = sessions
+              .filter((session) => projectTaskIds.has(session.taskId))
+              .map((session) => session.id);
             const projectOpen = expandedProjects.has(project.id) || Boolean(needle);
             return (
               <div key={project.id}>
                 <TreeRow
                   depth={0}
                   active={selection.projectId === project.id && selection.taskId === null}
-                  icon={<IconFolder className="size-4 text-muted-foreground" />}
+                  icon={<IconFolder className="size-[18px] text-muted-foreground" />}
                   label={project.name}
-                  meta={`${projectTasks.length}`}
                   expanded={projectOpen}
                   onClick={() => openProject(project.id)}
-                  action={<NewSessionButton onClick={() => selectProject(project.id)} />}
+                  action={(
+                    <>
+                      <NewWorktreeButton onClick={() => setDialog({ kind: "task", projectId: project.id })} />
+                      <NewDirectChatButton onClick={() => selectProject(project.id)} />
+                    </>
+                  )}
                   menu={(
                     <EntityMenu
                       onEdit={() => setDialog({ kind: "project", entity: project })}
-                      onDelete={() => setDeleteTarget({ kind: "project", id: project.id, name: project.name })}
+                      onDelete={() => setDeleteTarget({
+                        kind: "project",
+                        id: project.id,
+                        name: project.name,
+                        sessionIds: projectSessionIds,
+                      })}
                     />
                   )}
                 />
@@ -216,21 +249,57 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                   {projectTasks.map((task) => {
                     const taskSessions = sessions.filter((session) => session.taskId === task.id);
                     const taskOpen = expandedTasks.has(task.id) || Boolean(needle);
+                    if (task.workspaceMode === "project_root") {
+                      const directSession = taskSessions[0];
+                      return (
+                        <TreeRow
+                          key={task.id}
+                          depth={1}
+                          active={directSession
+                            ? selection.sessionId === directSession.id
+                            : selection.taskId === task.id}
+                          icon={directSession && conversations[directSession.id]?.pendingPermissions.length
+                            ? <IconAlertTriangle className="size-[18px] text-amber-500" aria-label={t("sidebar.permissionRequired")} />
+                            : <IconMessageCircle className="size-4 text-muted-foreground" aria-label={t("sidebar.directChatTask")} />}
+                          label={task.title}
+                          onClick={() => directSession
+                            ? selectSession(directSession.id, task.id, project.id)
+                            : selectTask(task.id, task.projectId)}
+                          menu={(
+                            <EntityMenu
+                              onEdit={() => setDialog({ kind: "task", projectId: project.id, entity: task })}
+                              onDelete={() => setDeleteTarget({
+                                kind: "task",
+                                id: task.id,
+                                name: task.title,
+                                workspaceMode: task.workspaceMode,
+                                sessionIds: taskSessions.map((session) => session.id),
+                              })}
+                            />
+                          )}
+                        />
+                      );
+                    }
                     return (
                       <div key={task.id}>
                         <TreeRow
                           depth={1}
                           active={selection.taskId === task.id && selection.sessionId === null}
-                          icon={<IconGitBranch className="size-3.5 text-muted-foreground" />}
+                          icon={<IconGitBranch className="size-4 text-muted-foreground" aria-label={t("sidebar.worktreeTask")} />}
                           label={task.title}
-                          meta={t(`common.${task.status}`)}
                           expanded={taskOpen}
                           onClick={() => openTask(task.id)}
                           action={<NewSessionButton onClick={() => selectTask(task.id, task.projectId)} />}
                           menu={(
                             <EntityMenu
                               onEdit={() => setDialog({ kind: "task", projectId: project.id, entity: task })}
-                              onDelete={() => setDeleteTarget({ kind: "task", id: task.id, name: task.title })}
+                              onDelete={() => setDeleteTarget({
+                                kind: "task",
+                                id: task.id,
+                                name: task.title,
+                                workspaceMode: task.workspaceMode,
+                                sessionIds: taskSessions.map((session) => session.id),
+                              })}
                             />
                           )}
                         />
@@ -240,13 +309,23 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                               key={session.id}
                               depth={2}
                               active={selection.sessionId === session.id}
-                              icon={session.status === "running" ? <AgentActivityDots label={t("common.running")} /> : null}
-                              label={session.agentId}
+                              // The dots mean "the agent is working right now", which is the
+                              // live prompt activity in the chat store - not session.status,
+                              // which tracks whether the logical session is registered and stays
+                              // "running" through every idle gap between turns. Once it stops,
+                              // the same slot carries an unread mark until the session is opened.
+                              icon={conversations[session.id]?.pendingPermissions.length
+                                ? <IconAlertTriangle className="size-[18px] text-amber-500" aria-label={t("sidebar.permissionRequired")} />
+                                : conversations[session.id]?.isResponding
+                                  ? <AgentActivityDots label={t("common.running")} className="text-muted-foreground" />
+                                  : unread.has(session.id)
+                                    ? <UnreadDot label={t("sidebar.unread")} />
+                                    : null}
+                              label={agentCliLabel(session.agentCli)}
                               onClick={() => selectSession(session.id, task.id, project.id)}
                               menu={(
                                 <EntityMenu
-                                  onEdit={() => setDialog({ kind: "session", taskId: task.id, entity: session })}
-                                  onDelete={() => setDeleteTarget({ kind: "session", id: session.id, name: session.agentId })}
+                                  onDelete={() => setDeleteTarget({ kind: "session", id: session.id, name: agentCliLabel(session.agentCli) })}
                                 />
                               )}
                             />
@@ -261,16 +340,9 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
           })}
         </nav>
 
-        {error && <p className="border-t border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error.message}</p>}
+        {error && <p data-selectable className="border-t border-destructive/20 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error.message}</p>}
         <div className="p-2">
-          {user === undefined ? (
-            <Button variant="ghost" size="sm" className="w-full justify-start" onClick={() => setSettingsOpen(true)}>
-              <IconSettings />
-              {t("common.settings")}
-            </Button>
-          ) : (
-            <UserProfile user={user} onOpenSettings={() => setSettingsOpen(true)} onSignOut={onSignOut} />
-          )}
+          <UserProfile user={user} onOpenSettings={() => setSettingsOpen(true)} onSignOut={onSignOut} />
         </div>
       </aside>
     </>
@@ -278,49 +350,21 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
 }
 
 /**
- * Row-position animation for each cell of the 3x3 grid, in row-major order.
+ * Marks a session that finished a turn the user has not opened yet.
  *
- * Spelled out as whole class names because Tailwind scans source text: a name
- * assembled at runtime would never make it into the generated stylesheet.
+ * A single filled blue dot - `sky`, the same blue the chat surface already uses
+ * for tool-call chrome - so it reads as "new here" and stays clear of the status
+ * colours (emerald means running, amber means a permission is waiting). It sits
+ * in the icon slot the activity dots vacate when the turn ends, so a row never
+ * shows both at once.
  */
-const AGENT_DOT_ANIMATIONS = [
-  "animate-dot-column-top", "animate-dot-column-top", "animate-dot-column-top",
-  "animate-dot-column-middle", "animate-dot-column-middle", "animate-dot-column-middle",
-  "animate-dot-column-bottom", "animate-dot-column-bottom", "animate-dot-column-bottom",
-];
-
-/**
- * Offset between columns, one third of the 1.2s `dot-column-*` cycle.
- *
- * Those keyframes hold at the top for this long plus 60ms, which is what makes
- * a column start falling a beat after the column to its right arrives. Retiming
- * the animation means moving this and the cycle duration together, or the
- * handoff breaks instead of just running at a different speed.
- */
-const AGENT_DOT_COLUMN_DELAY_MS = 400;
-
-/**
- * Marks a working agent with a 3x3 grid of squares.
- *
- * Every column runs the same two-dot window that climbs to the top, pauses,
- * and drops back down; columns are offset from each other so the three never
- * move in lockstep.
- *
- * The animation carries the "still running" meaning on its own, so a stopped
- * session renders nothing at all. `TreeRow` reserves the icon slot either way,
- * which keeps every label aligned as the status flips.
- */
-function AgentActivityDots({ label }: { label: string }) {
+function UnreadDot({ label }: { label: string }) {
   return (
-    <span role="img" aria-label={label} className="grid grid-cols-3 gap-[2px] text-muted-foreground">
-      {AGENT_DOT_ANIMATIONS.map((animation, index) => (
-        <span
-          key={index}
-          className={`size-[2.5px] rounded-[0.5px] bg-current ${animation}`}
-          style={{ animationDelay: `${(index % 3) * AGENT_DOT_COLUMN_DELAY_MS}ms` }}
-        />
-      ))}
-    </span>
+    <span
+      role="img"
+      aria-label={label}
+      className="size-2 rounded-full bg-sky-500"
+    />
   );
 }
 
@@ -366,22 +410,22 @@ interface TreeRowProps {
 /** Keeps every tree level aligned while preserving a stable row width for actions. */
 function TreeRow({ depth, active, icon, label, meta, expanded, onClick, action, menu }: TreeRowProps) {
   return (
-    <div className={`group/tree flex h-8 items-center rounded-md transition-colors ${active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/70"}`}>
+    <div className={`group/tree flex h-9 items-center rounded-md transition-colors ${active ? "bg-sidebar-accent text-sidebar-accent-foreground" : "hover:bg-sidebar-accent/70"}`}>
       <button
         type="button"
         onClick={onClick}
         aria-expanded={expanded}
-        className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md text-left text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        style={{ paddingLeft: `${6 + depth * 16}px` }}
+        className="flex h-full min-w-0 flex-1 items-center gap-2 rounded-md text-left text-[13px] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        style={{ paddingLeft: `${8 + depth * 18}px` }}
       >
-        <span className="relative flex size-4 shrink-0 items-center justify-center">
+        <span className="relative flex size-[18px] shrink-0 items-center justify-center">
           <span className={`flex items-center justify-center transition-opacity duration-100 ${expanded === undefined ? "" : "group-hover/tree:opacity-0"}`}>{icon}</span>
           {expanded !== undefined && (expanded
-            ? <IconChevronDown className="absolute size-3.5 opacity-0 transition-opacity duration-100 group-hover/tree:opacity-100" />
-            : <IconChevronRight className="absolute size-3.5 opacity-0 transition-opacity duration-100 group-hover/tree:opacity-100" />)}
+            ? <IconChevronDown className="absolute size-4 opacity-0 transition-opacity duration-100 group-hover/tree:opacity-100" />
+            : <IconChevronRight className="absolute size-4 opacity-0 transition-opacity duration-100 group-hover/tree:opacity-100" />)}
         </span>
         <span className="min-w-0 flex-1 truncate font-medium">{label}</span>
-        {meta && <span className="truncate text-[10px] text-muted-foreground">{meta}</span>}
+        {meta && <span className="truncate text-[11px] text-muted-foreground">{meta}</span>}
       </button>
       <div className="mr-1 flex items-center opacity-0 transition-opacity duration-100 group-hover/tree:opacity-100 group-focus-within/tree:opacity-100">
         {menu}
@@ -404,7 +448,7 @@ function NewSessionButton({ onClick }: { onClick: () => void }) {
   return (
     <Button
       variant="ghost"
-      size="icon-xs"
+      size="icon-sm"
       aria-label={t("sidebar.newSession")}
       onClick={(event) => {
         // The row underneath toggles expansion; opening the composer should not.
@@ -417,19 +461,70 @@ function NewSessionButton({ onClick }: { onClick: () => void }) {
   );
 }
 
+/**
+ * Opens the create-worktree-task dialog scoped to the row's project.
+ */
+function NewWorktreeButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("sidebar.newTask")}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick();
+            }}
+          />
+        )}
+      >
+        <IconGitBranch />
+      </TooltipTrigger>
+      <TooltipContent>{t("sidebar.newTask")}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/** Starts a blank direct chat rooted at the row's project. */
+function NewDirectChatButton({ onClick }: { onClick: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("sidebar.newDirectChat")}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick();
+            }}
+          />
+        )}
+      >
+        <IconEdit />
+      </TooltipTrigger>
+      <TooltipContent>{t("sidebar.newDirectChat")}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** Provides contextual CRUD commands without making every tree row visually noisy. */
-function EntityMenu({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+function EntityMenu({ onEdit, onDelete }: { onEdit?: () => void; onDelete: () => void }) {
   const { t } = useTranslation();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-xs" aria-label={t("sidebar.openActions")} onClick={(event) => event.stopPropagation()} />}>
+      <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={t("sidebar.openActions")} onClick={(event) => event.stopPropagation()} />}>
         <IconDots />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuItem onClick={onEdit}><IconPencil />{t("common.edit")}</DropdownMenuItem>
+      <DropdownMenuContent align="end" className="w-44">
+        {onEdit && <DropdownMenuItem onClick={onEdit}><IconPencil />{t("common.edit")}</DropdownMenuItem>}
         <DropdownMenuItem variant="destructive" onClick={onDelete}><IconTrash />{t("common.delete")}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
-

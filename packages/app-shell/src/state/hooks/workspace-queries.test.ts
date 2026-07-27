@@ -39,11 +39,11 @@ describe("useProjects", () => {
 describe("useTasks", () => {
   it("returns the task list from the client", async () => {
     const state = createMockClientState();
-    state.tasks = [{ id: "t1", projectId: "p1", title: "Refactor", status: "todo" }];
+    state.tasks = [{ id: "t1", projectId: "p1", title: "Refactor", status: "todo", workspaceMode: "worktree" }];
     const client = createMockClient(state);
     const { result } = renderHookWithClient(() => useTasks(), client);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data).toEqual([{ id: "t1", projectId: "p1", title: "Refactor", status: "todo" }]);
+    expect(result.current.data).toEqual([{ id: "t1", projectId: "p1", title: "Refactor", status: "todo", workspaceMode: "worktree" }]);
   });
 });
 
@@ -51,13 +51,13 @@ describe("useSessions", () => {
   it("returns the session list from the client", async () => {
     const state = createMockClientState();
     state.sessions = [
-      { id: "s1", taskId: "t1", agentId: "codex", agentSessionId: null, status: "running" },
+      { id: "s1", taskId: "t1", agentCli: "open_code", status: "running" },
     ];
     const client = createMockClient(state);
     const { result } = renderHookWithClient(() => useSessions(), client);
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toEqual([
-      { id: "s1", taskId: "t1", agentId: "codex", agentSessionId: null, status: "running" },
+      { id: "s1", taskId: "t1", agentCli: "open_code", status: "running" },
     ]);
   });
 });

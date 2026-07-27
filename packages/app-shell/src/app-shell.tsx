@@ -3,6 +3,7 @@ import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
+  Toaster,
   TooltipProvider,
   type ResizablePanelHandle,
 } from "@ora/ui";
@@ -22,9 +23,10 @@ import { WorkspaceView } from "./features/workspace/workspace-view";
 import { WorkspaceDialogs } from "./features/workspace/workspace-dialogs";
 import { SettingsDialog } from "./features/settings/settings-dialog";
 import { AppI18nProvider } from "./i18n/i18n";
-import type { ChatSuggestion, CurrentUser } from "./lib/types";
+import type { CurrentUser } from "./lib/types";
 import { createAppQueryClient } from "./state/query-client";
-import { useSessionStatusSync } from "./state/hooks/use-session-status-sync";
+import { useGitIdentityUser } from "./state/hooks/use-git-identity";
+import { useSessionUnreadSync } from "./state/hooks/use-session-unread-sync";
 import { useUiStore } from "./state/stores/ui-store";
 import { startThemeSubscription } from "./state/stores/settings-store";
 import { useTranslation } from "react-i18next";
@@ -33,8 +35,7 @@ interface AppShellProps {
   client: ContractsClient;
   chatStore: ChatStore;
   platform: PlatformAdapter;
-  user: CurrentUser | undefined;
-  chatSuggestions?: readonly ChatSuggestion[];
+  user?: CurrentUser;
 }
 
 const DEFAULT_SIDEBAR_WIDTH = 320;
@@ -43,32 +44,29 @@ const MAX_SIDEBAR_WIDTH = 480;
 const MIN_WORKSPACE_WIDTH = 480;
 
 /** The main Ora application shell: sidebar + chat view with conversation state. */
-export function AppShell({ client, chatStore, platform, user, chatSuggestions = [] }: AppShellProps) {
+export function AppShell({ client, chatStore, platform, user }: AppShellProps) {
   // One client per shell instance so HMR or multiple mounted shells never share cache.
   const [queryClient] = useState(() => createAppQueryClient());
   return (
     <QueryClientProvider client={queryClient}>
       <AppI18nProvider>
-        <AppShellContent client={client} chatStore={chatStore} platform={platform} user={user} chatSuggestions={chatSuggestions} />
+        <AppShellContent client={client} chatStore={chatStore} platform={platform} user={user} />
       </AppI18nProvider>
     </QueryClientProvider>
   );
 }
 
-interface AppShellContentProps {
-  client: ContractsClient;
-  chatStore: ChatStore;
-  platform: PlatformAdapter;
-  user: CurrentUser | undefined;
-  chatSuggestions: readonly ChatSuggestion[];
-}
-
 /** Renders the shell inside providers so stateful hooks can consume the active locale. */
-function AppShellContent({ client, chatStore, platform, user, chatSuggestions }: AppShellContentProps) {
+function AppShellContent({ client, chatStore, platform, user: injectedUser }: AppShellProps) {
   // Mirror theme/density onto <html> for the shell's lifetime.
   useEffect(() => startThemeSubscription(), []);
-  // Keep the persisted session status aligned with live ACP prompt activity.
-  useSessionStatusSync(client, chatStore);
+  // Track which sessions finished a turn while the user was looking elsewhere.
+  useSessionUnreadSync(chatStore);
+
+  // Derive the sidebar user from the host's global Git identity unless a caller
+  // (tests, storybook) injects an explicit user to render instead.
+  const gitIdentityUser = useGitIdentityUser(client, injectedUser === undefined);
+  const user = injectedUser ?? gitIdentityUser;
 
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
   const { i18n, t } = useTranslation();
@@ -93,7 +91,7 @@ function AppShellContent({ client, chatStore, platform, user, chatSuggestions }:
             </a>
             <div className="flex h-dvh overflow-hidden bg-background text-foreground">
               {sidebarCollapsed ? (
-                <WorkspaceView userName={user?.name ?? t("account.localUser")} chatSuggestions={chatSuggestions} />
+                <WorkspaceView userName={user.name} />
               ) : (
                 <ResizablePanelGroup orientation="horizontal">
                   <ResizablePanel
@@ -114,7 +112,7 @@ function AppShellContent({ client, chatStore, platform, user, chatSuggestions }:
                     onDoubleClick={() => sidebarPanelRef.current?.resize(DEFAULT_SIDEBAR_WIDTH)}
                   />
                   <ResizablePanel id="workspace-content" minSize={MIN_WORKSPACE_WIDTH}>
-                    <WorkspaceView userName={user?.name ?? t("account.localUser")} chatSuggestions={chatSuggestions} />
+                    <WorkspaceView userName={user.name} />
                   </ResizablePanel>
                 </ResizablePanelGroup>
               )}
@@ -124,6 +122,7 @@ function AppShellContent({ client, chatStore, platform, user, chatSuggestions }:
               <WorkspaceDialogs />
             </div>
             <PlatformHost locale={locale} />
+            <Toaster position="bottom-right" closeButton />
           </TooltipProvider>
         </PlatformProvider>
       </ChatStoreContext.Provider>

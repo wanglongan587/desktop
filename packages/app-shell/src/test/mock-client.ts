@@ -3,7 +3,6 @@ import type {
   ContractsClient,
   Project,
   Session,
-  SessionStatus,
   Skill,
   Task,
   TaskStatus,
@@ -44,7 +43,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
       update: async (req) => {
         const idx = state.projects.findIndex((p) => p.id === req.projectId);
         if (idx < 0) throw new Error(`project ${req.projectId} not found`);
-        const updated: Project = { id: req.projectId, name: req.name, rootPath: req.rootPath };
+        const updated: Project = { ...state.projects[idx]!, name: req.name };
         state.projects[idx] = updated;
         return { project: updated };
       },
@@ -67,6 +66,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           projectId: req.projectId,
           title: req.title,
           status: req.status as TaskStatus,
+          workspaceMode: req.workspaceMode ?? "worktree",
         };
         state.tasks.push(task);
         return { task };
@@ -95,32 +95,34 @@ export function createMockClient(state: MockClientState): ContractsClient {
         const session: Session = {
           id: nextId("s", state.sessions.length),
           taskId: req.taskId,
-          agentId: req.agentId,
-          agentSessionId: req.agentSessionId,
-          status: req.status as SessionStatus,
+          agentCli: req.agentCli,
+          status: "running",
         };
         state.sessions.push(session);
         return { session };
       },
-      update: async (req) => {
-        const idx = state.sessions.findIndex((s) => s.id === req.sessionId);
-        if (idx < 0) throw new Error(`session ${req.sessionId} not found`);
-        const existing = state.sessions[idx]!;
-        const updated: Session = {
-          id: req.sessionId,
-          taskId: req.taskId,
-          agentId: req.agentId,
-          agentSessionId: req.agentSessionId,
-          status: req.status as SessionStatus,
-        };
-        state.sessions[idx] = { ...existing, ...updated };
-        return { session: state.sessions[idx]! };
+      load: async function* () { yield { type: "completed" as const }; },
+      prompt: async function* () { yield { type: "completed" as const, stopReason: "end_turn" as const }; },
+      respondToPermission: async () => ({}),
+      stop: async (req) => {
+        const session = state.sessions.find((candidate) => candidate.id === req.sessionId)!;
+        session.status = "stopped";
+        return { session };
       },
       delete: async (req) => {
         const idx = state.sessions.findIndex((s) => s.id === req.sessionId);
         if (idx >= 0) state.sessions.splice(idx, 1);
         return { sessionId: req.sessionId };
       },
+    },
+    agentRuntime: {
+      listModels: async () => ({
+        groups: [
+          { agentCli: "open_code", models: ["opencode/big-pickle", "opencode/small-pickle"] },
+          { agentCli: "nga", models: ["nga/default"] },
+          { agentCli: "code_agent_cli", models: ["codeagentcli/default"] },
+        ],
+      }),
     },
     agent: {
       list: async () => ({ agents: [...state.agents] }),

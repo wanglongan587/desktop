@@ -7,6 +7,7 @@ import {
   type ResponseByOperation,
 } from "./endpoints.js";
 import type {
+  ContractCallOptions,
   ContractTransport,
   ContractTransportRequest,
 } from "./transport.js";
@@ -15,7 +16,10 @@ type ClientRequestShape = object;
 
 type ClientOperation<Operation extends EndpointOperation> = (
   request: RequestByOperation[Operation],
-) => Promise<ResponseByOperation[Operation]>;
+  options?: ContractCallOptions,
+) => (typeof endpoints)[Operation]["responseMode"] extends "stream"
+  ? AsyncIterable<ResponseByOperation[Operation]>
+  : Promise<ResponseByOperation[Operation]>;
 
 /**
  * Namespaces declared by the endpoint manifest. Sourced from `endpoints` so
@@ -48,55 +52,65 @@ export function createContractsClient(
 ): ContractsClient {
   return {
     project: {
-      create: (request) =>
-        executeOperation("createProject", request, transport),
-      get: (request) => executeOperation("getProject", request, transport),
-      list: (request) => executeOperation("listProjects", request, transport),
-      update: (request) =>
-        executeOperation("updateProject", request, transport),
-      delete: (request) =>
-        executeOperation("deleteProject", request, transport),
+      create: (request, options) =>
+        executeOperation("createProject", request, transport, options),
+      get: (request, options) => executeOperation("getProject", request, transport, options),
+      list: (request, options) => executeOperation("listProjects", request, transport, options),
+      update: (request, options) =>
+        executeOperation("updateProject", request, transport, options),
+      delete: (request, options) =>
+        executeOperation("deleteProject", request, transport, options),
     },
     projectWorkContext: {
-      open: (request) =>
-        executeOperation("openProjectWorkContext", request, transport),
-      renew: (request) =>
-        executeOperation("renewProjectWorkContext", request, transport),
+      open: (request, options) =>
+        executeOperation("openProjectWorkContext", request, transport, options),
+      renew: (request, options) =>
+        executeOperation("renewProjectWorkContext", request, transport, options),
     },
     task: {
-      create: (request) => executeOperation("createTask", request, transport),
-      get: (request) => executeOperation("getTask", request, transport),
-      list: (request) => executeOperation("listTasks", request, transport),
-      update: (request) => executeOperation("updateTask", request, transport),
-      delete: (request) => executeOperation("deleteTask", request, transport),
+      create: (request, options) => executeOperation("createTask", request, transport, options),
+      get: (request, options) => executeOperation("getTask", request, transport, options),
+      list: (request, options) => executeOperation("listTasks", request, transport, options),
+      update: (request, options) => executeOperation("updateTask", request, transport, options),
+      delete: (request, options) => executeOperation("deleteTask", request, transport, options),
     },
     session: {
-      create: (request) =>
-        executeOperation("createSession", request, transport),
-      get: (request) => executeOperation("getSession", request, transport),
-      list: (request) => executeOperation("listSessions", request, transport),
-      update: (request) =>
-        executeOperation("updateSession", request, transport),
-      delete: (request) =>
-        executeOperation("deleteSession", request, transport),
+      create: (request, options) =>
+        executeOperation("createSession", request, transport, options),
+      get: (request, options) => executeOperation("getSession", request, transport, options),
+      list: (request, options) => executeOperation("listSessions", request, transport, options),
+      load: (request, options) => executeStreamOperation("loadSession", request, transport, options),
+      prompt: (request, options) => executeStreamOperation("promptSession", request, transport, options),
+      respondToPermission: (request, options) => executeOperation("respondToSessionPermission", request, transport, options),
+      stop: (request, options) => executeOperation("stopSession", request, transport, options),
+      delete: (request, options) =>
+        executeOperation("deleteSession", request, transport, options),
+    },
+    agentRuntime: {
+      listModels: (request, options) =>
+        executeOperation("listAgentModels", request, transport, options),
     },
     skill: {
-      create: (request) => executeOperation("createSkill", request, transport),
-      get: (request) => executeOperation("getSkill", request, transport),
-      list: (request) => executeOperation("listSkills", request, transport),
-      update: (request) => executeOperation("updateSkill", request, transport),
-      delete: (request) => executeOperation("deleteSkill", request, transport),
+      create: (request, options) => executeOperation("createSkill", request, transport, options),
+      get: (request, options) => executeOperation("getSkill", request, transport, options),
+      list: (request, options) => executeOperation("listSkills", request, transport, options),
+      update: (request, options) => executeOperation("updateSkill", request, transport, options),
+      delete: (request, options) => executeOperation("deleteSkill", request, transport, options),
     },
     agent: {
-      create: (request) => executeOperation("createAgent", request, transport),
-      get: (request) => executeOperation("getAgent", request, transport),
-      list: (request) => executeOperation("listAgents", request, transport),
-      update: (request) => executeOperation("updateAgent", request, transport),
-      delete: (request) => executeOperation("deleteAgent", request, transport),
+      create: (request, options) => executeOperation("createAgent", request, transport, options),
+      get: (request, options) => executeOperation("getAgent", request, transport, options),
+      list: (request, options) => executeOperation("listAgents", request, transport, options),
+      update: (request, options) => executeOperation("updateAgent", request, transport, options),
+      delete: (request, options) => executeOperation("deleteAgent", request, transport, options),
     },
     fileSystem: {
-      listDirectory: (request) =>
-        executeOperation("listDirectory", request, transport),
+      listDirectory: (request, options) =>
+        executeOperation("listDirectory", request, transport, options),
+    },
+    gitIdentity: {
+      get: (request, options) =>
+        executeOperation("getGitIdentity", request, transport, options),
     },
   };
 }
@@ -105,6 +119,7 @@ async function executeOperation<Operation extends EndpointOperation>(
   operation: Operation,
   request: RequestByOperation[Operation],
   transport: ContractTransport,
+  options?: ContractCallOptions,
 ): Promise<ResponseByOperation[Operation]> {
   const endpoint = endpoints[operation];
   const path = buildPath(
@@ -128,7 +143,26 @@ async function executeOperation<Operation extends EndpointOperation>(
     headers: buildHeaders(endpoint.hasJsonBody),
   };
 
-  return transport.send<ResponseByOperation[Operation]>(transportRequest);
+  return transport.send<ResponseByOperation[Operation]>(transportRequest, options);
+}
+
+/** Builds one typed request and delegates stream lifecycle to the selected transport. */
+function executeStreamOperation<Operation extends EndpointOperation>(
+  operation: Operation,
+  request: RequestByOperation[Operation],
+  transport: ContractTransport,
+  options?: ContractCallOptions,
+): AsyncIterable<ResponseByOperation[Operation]> {
+  const endpoint = endpoints[operation];
+  const requestShape = request as ClientRequestShape;
+  return transport.stream<ResponseByOperation[Operation]>({
+    operationName: endpoint.operationName,
+    request,
+    method: endpoint.method,
+    path: buildPath(endpoint.pathTemplate, endpoint.pathParams, endpoint.queryParams, requestShape),
+    body: buildJsonBody(endpoint.pathParams, endpoint.queryParams, endpoint.hasJsonBody, requestShape),
+    headers: buildHeaders(endpoint.hasJsonBody),
+  }, options);
 }
 
 function buildPath(

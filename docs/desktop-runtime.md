@@ -1,12 +1,14 @@
 # Desktop Runtime
 
-`apps/desktop/src-tauri` is an independent Cargo workspace that hosts the same persisted CRUD capabilities as the Web server without running an HTTP server.
+`apps/desktop/src-tauri` is an independent Cargo workspace that hosts the same persisted operations and ACP streaming capabilities as the Web server without running an HTTP server.
 
 ## Shared Backend and Commands
 
-Desktop constructs one cloneable `ora-backend::Backend`. It exposes one snake-case Tauri command for each Project, Task, Session, Skill, and Agent CRUD operation (25 commands total). Every command accepts the complete `ora-contracts` request DTO, executes the synchronous backend method on Tauri's blocking executor, and returns the matching response DTO.
+Desktop constructs one cloneable `ora-backend::Backend`. Unary operations use typed snake-case Tauri commands. Session load and prompt operations use `stream_contract`, which forwards ordered `data`, `error`, and `end` frames over a Tauri Channel. A private call id allows an `AbortSignal` to cancel only that stream.
 
 The frontend injects `createTauriTransport()` into `createContractsClient`. The transport maps contract operation names to Tauri commands and forwards the original request DTO unchanged. Shared backend errors retain the same public code and message as Web errors; Tauri transport errors have no HTTP status.
+
+Backend construction immediately attempts supervised `opencode acp`, `nga acp`, and `codeagentcli acp` children in the user's home directory. Sessions share the connection selected by their `agentCli` while retaining their own ACP session id and Task worktree `cwd`. Each CLI retries independently; failures leave the Desktop shell and healthy CLIs available, while operations targeting an unavailable CLI report `agent_runtime_unavailable`.
 
 The current Desktop slice explicitly returns `unsupported_operation` for:
 
@@ -14,7 +16,7 @@ The current Desktop slice explicitly returns `unsupported_operation` for:
 - renewing a project work context;
 - listing a server filesystem directory.
 
-These exclusions do not affect the 25 shared CRUD operations. `ProjectWorkContext` remains outside this extraction.
+`ProjectWorkContext` remains outside this extraction.
 
 ## Persistent Paths
 
@@ -29,11 +31,16 @@ On first launch, Desktop creates the app data directory, default worktree direct
 
 The worktree root is non-sensitive configuration. Users can change it from Settings → Data & privacy on Desktop. A selected value must be an absolute path to an existing directory. The new value affects task creations that start after the update; in-flight operations retain their original snapshot, and existing worktrees are not moved.
 
-The configured root is only a creation target. Existing worktree locations are resolved from the stored branch name and `git worktree list --porcelain`, so changing the root does not break later task deletion.
+The configured root is only a creation target. Existing worktree locations are resolved from the stored branch name and `git worktree list --porcelain` when an agent Session starts or loads. Task and project deletion never mutate Git.
 
 ## Logging
 
 Desktop initializes `ora-logging` before opening the backend and registers the Gitlancer logger bridge. Logs rotate daily and retain three files. Debug builds write to stdout and the file; release builds write to the file only. The logging guard remains managed for the application lifetime.
+
+At startup, Desktop reads the operating system's IANA timezone and fixes it for the process
+lifetime. Structured event timestamps use that timezone. If the system timezone cannot be read or
+parsed, Desktop records a warning, uses UTC, and continues startup. A system timezone change takes
+effect after Ora restarts. Daily log files continue to rotate at UTC boundaries.
 
 ## Verification
 

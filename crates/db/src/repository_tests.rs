@@ -6,7 +6,7 @@ use ora_application::{
     TaskRepository, TaskRepositoryError, WorktreeRepository, WorktreeRepositoryError,
 };
 use ora_domain::{
-    AgentDefinition, AgentDefinitionId, AgentId, AuditFields, Project, ProjectId,
+    AgentCli, AgentDefinition, AgentDefinitionId, AuditFields, Project, ProjectId,
     ProjectWorkContext, ProjectWorkContextId, ProjectWorkContextSurface, Session, SessionId,
     SessionStatus, Skill, SkillId, Task, TaskId, TaskStatus, Worktree, WorktreeActivity,
     WorktreeId,
@@ -16,10 +16,10 @@ use pretty_assertions::assert_eq;
 use tempfile::TempDir;
 
 use crate::{
-    DatabaseBootstrapper, DatabaseLocation, RepositoryPool, SqliteAgentDefinitionRepository,
-    SqliteProjectRepository, SqliteProjectWorkContextRepository, SqliteSessionRepository,
-    SqliteSkillRepository, SqliteTaskRepository, SqliteWorktreeRepository, TimestampSource,
-    default_migration_catalog,
+    CascadeDeleteOutcome, DatabaseBootstrapper, DatabaseLocation, RepositoryPool,
+    SqliteAgentDefinitionRepository, SqliteCascadeRepository, SqliteProjectRepository,
+    SqliteProjectWorkContextRepository, SqliteSessionRepository, SqliteSkillRepository,
+    SqliteTaskRepository, SqliteWorktreeRepository, TimestampSource, default_migration_catalog,
 };
 
 /// Verifies catalog repositories use stable identifiers and hide soft-deleted rows.
@@ -427,12 +427,32 @@ fn task_repository_supports_crud_and_soft_delete() {
 #[test]
 fn session_repository_supports_crud_and_soft_delete() {
     let (_temp_dir, pool) = bootstrapped_repository_pool();
-    let repository = SqliteSessionRepository::new(pool);
+    let project_repository = SqliteProjectRepository::new(pool.clone());
+    let task_repository = SqliteTaskRepository::new(pool.clone());
+    let repository = SqliteSessionRepository::new(pool.clone());
+    project_repository
+        .create_project(Project::new(
+            ProjectId::new("project-1"),
+            "Ora",
+            "/tmp/ora",
+            AuditFields::new(10, 10, false),
+        ))
+        .unwrap();
+    task_repository
+        .create_task(Task::new(
+            TaskId::new("task-1"),
+            ProjectId::new("project-1"),
+            "Test sessions",
+            TaskStatus::Todo,
+            None,
+            AuditFields::new(11, 11, false),
+        ))
+        .unwrap();
     let created_session = Session::new(
         SessionId::new("session-1"),
         TaskId::new("task-1"),
-        AgentId::new("agent-1"),
-        Some("provider-1".to_string()),
+        AgentCli::OpenCode,
+        "provider-1",
         SessionStatus::Running,
         AuditFields::new(12, 12, false),
     );
@@ -440,6 +460,19 @@ fn session_repository_supports_crud_and_soft_delete() {
     assert_eq!(
         repository.create_session(created_session.clone()).unwrap(),
         created_session.clone()
+    );
+    assert_eq!(
+        pool.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT agent_cli FROM sessions WHERE id = ?1",
+                    rusqlite::params![created_session.id.as_ref()],
+                    |row| row.get::<_, String>(0),
+                )
+                .map_err(crate::DatabaseError::from)
+        })
+        .unwrap(),
+        "ora-space.opencode"
     );
     assert_eq!(
         repository.find_session(&created_session.id).unwrap(),
@@ -453,8 +486,8 @@ fn session_repository_supports_crud_and_soft_delete() {
     let updated_session = Session::new(
         created_session.id.clone(),
         created_session.task_id.clone(),
-        AgentId::new("agent-2"),
-        None,
+        created_session.agent_cli,
+        created_session.agent_session_id.clone(),
         SessionStatus::Stopped,
         AuditFields::new(12, 22, false),
     );
@@ -475,6 +508,32 @@ fn session_repository_supports_crud_and_soft_delete() {
     );
     assert_eq!(repository.find_session(&updated_session.id).unwrap(), None);
     assert_eq!(repository.list_sessions().unwrap(), Vec::<Session>::new());
+}
+
+/// Verifies a completed ACP handshake cannot attach a new session to a deleted task.
+#[test]
+fn session_repository_rejects_soft_deleted_task() {
+    let (_temp_dir, pool) = bootstrapped_repository_pool();
+    insert_cascade_fixture(&pool, SessionStatus::Stopped);
+    let cascade = SqliteCascadeRepository::new(pool.clone());
+    assert_eq!(
+        cascade.delete_task(&TaskId::new("task-1"), 20).unwrap(),
+        CascadeDeleteOutcome::Deleted
+    );
+    let session = Session::new(
+        SessionId::new("session-after-delete"),
+        TaskId::new("task-1"),
+        AgentCli::OpenCode,
+        "provider-after-delete",
+        SessionStatus::Running,
+        AuditFields::new(21, 21, false),
+    );
+
+    assert!(
+        SqliteSessionRepository::new(pool)
+            .create_session(session)
+            .is_err()
+    );
 }
 
 /// Verifies the SQLite-backed worktree repository preserves CRUD snapshots and hides soft-deleted rows.
@@ -561,8 +620,8 @@ fn repository_pool_composes_all_repository_adapters() {
     let session = Session::new(
         SessionId::new("session-1"),
         task.id.clone(),
-        AgentId::new("agent-1"),
-        Some("provider-1".to_string()),
+        AgentCli::OpenCode,
+        "provider-1",
         SessionStatus::Running,
         AuditFields::new(42, 42, false),
     );
@@ -605,6 +664,100 @@ fn repository_pool_composes_all_repository_adapters() {
         worktree_repository.find_worktree(&worktree.id).unwrap(),
         Some(worktree)
     );
+}
+
+/// Verifies task aggregate deletion rejects running sessions and then commits every soft delete.
+#[test]
+fn task_cascade_delete_is_atomic_and_does_not_require_git() {
+    let (_temp_dir, pool) = bootstrapped_repository_pool();
+    insert_cascade_fixture(&pool, SessionStatus::Running);
+    let repository = SqliteCascadeRepository::new(pool.clone());
+
+    assert_eq!(
+        repository.delete_task(&TaskId::new("task-1"), 20).unwrap(),
+        CascadeDeleteOutcome::ActiveSession
+    );
+    assert_eq!(cascade_flags(&pool), (0, 0, 0, 0, 1));
+    pool.with_connection(|connection| {
+        connection.execute(
+            "UPDATE sessions SET status = ?1 WHERE id = 'session-1'",
+            rusqlite::params![SessionStatus::Stopped.database_value()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    assert_eq!(
+        repository.delete_task(&TaskId::new("task-1"), 30).unwrap(),
+        CascadeDeleteOutcome::Deleted
+    );
+    assert_eq!(cascade_flags(&pool), (0, 1, 1, 1, 1));
+}
+
+/// Verifies project deletion removes its transient lease and soft-deletes the full Ora aggregate.
+#[test]
+fn project_cascade_delete_removes_work_context_without_touching_external_state() {
+    let (_temp_dir, pool) = bootstrapped_repository_pool();
+    insert_cascade_fixture(&pool, SessionStatus::Stopped);
+    let repository = SqliteCascadeRepository::new(pool.clone());
+
+    assert_eq!(
+        repository
+            .delete_project(&ProjectId::new("project-1"), 30)
+            .unwrap(),
+        CascadeDeleteOutcome::Deleted
+    );
+    assert_eq!(cascade_flags(&pool), (1, 1, 1, 1, 0));
+}
+
+/// Inserts one complete aggregate using only Ora-owned rows, deliberately without Git fixtures.
+fn insert_cascade_fixture(pool: &RepositoryPool, session_status: SessionStatus) {
+    pool.with_connection(|connection| {
+        connection.execute_batch(
+            "INSERT INTO projects VALUES ('project-1', 'Ora', '/not/a/repository', 1, 1, 0);
+             INSERT INTO tasks VALUES ('task-1', 'project-1', 'Task', 0, 'worktree-1', 1, 1, 0);
+             INSERT INTO worktrees VALUES ('worktree-1', 'task-1', 'ora/task-1', 1, 1, 1, 0);
+             INSERT INTO project_work_contexts VALUES ('context-1', 'web', 'main', 'project-1', 100, 1, 1);",
+        )?;
+        connection.execute(
+            "INSERT INTO sessions VALUES ('session-1', 'task-1', 'ora-space.opencode', 'provider-1', ?1, 1, 1, 0)",
+            rusqlite::params![session_status.database_value()],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+}
+
+/// Reads all aggregate deletion markers plus the remaining transient work-context count.
+fn cascade_flags(pool: &RepositoryPool) -> (i64, i64, i64, i64, i64) {
+    pool.with_connection(|connection| {
+        Ok((
+            connection.query_row(
+                "SELECT is_deleted FROM projects WHERE id = 'project-1'",
+                [],
+                |row| row.get(0),
+            )?,
+            connection.query_row(
+                "SELECT is_deleted FROM tasks WHERE id = 'task-1'",
+                [],
+                |row| row.get(0),
+            )?,
+            connection.query_row(
+                "SELECT is_deleted FROM worktrees WHERE id = 'worktree-1'",
+                [],
+                |row| row.get(0),
+            )?,
+            connection.query_row(
+                "SELECT is_deleted FROM sessions WHERE id = 'session-1'",
+                [],
+                |row| row.get(0),
+            )?,
+            connection.query_row("SELECT COUNT(*) FROM project_work_contexts", [], |row| {
+                row.get(0)
+            })?,
+        ))
+    })
+    .unwrap()
 }
 
 /// Verifies project repositories translate SQLite statement failures into application-owned errors.
@@ -726,13 +879,13 @@ fn insert_invalid_task_row(pool: &RepositoryPool) {
 fn insert_invalid_session_row(pool: &RepositoryPool) {
     pool.with_connection(|connection| {
         connection.execute(
-            "INSERT INTO sessions (id, task_id, agent_id, agent_session_id, status, created_at, updated_at, is_deleted)
+            "INSERT INTO sessions (id, task_id, agent_cli, agent_session_id, status, created_at, updated_at, is_deleted)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             rusqlite::params![
                 "session-invalid",
                 "task-1",
-                "agent-1",
-                Option::<String>::None,
+                AgentCli::OpenCode.database_value(),
+                "provider-invalid",
                 99,
                 61,
                 61,

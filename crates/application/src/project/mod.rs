@@ -7,8 +7,7 @@ mod ports;
 mod tests;
 
 pub use handlers::{
-    CreateProjectHandler, DeleteProjectHandler, GetProjectHandler, ListProjectsHandler,
-    UpdateProjectHandler,
+    CreateProjectHandler, GetProjectHandler, ListProjectsHandler, UpdateProjectHandler,
 };
 pub use id_generator::UuidProjectIdGenerator;
 pub use ports::{Clock, ProjectIdGenerator, ProjectRepository, ProjectRepositoryError};

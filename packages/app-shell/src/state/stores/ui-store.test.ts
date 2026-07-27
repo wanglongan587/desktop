@@ -64,20 +64,30 @@ describe("useUiStore", () => {
       projectId: "p1",
       title: "Refactor",
       status: "todo",
+      workspaceMode: "worktree",
     };
     const session: Session = {
       id: "s1",
       taskId: "t1",
-      agentId: "codex",
-      agentSessionId: null,
+      agentCli: "open_code",
       status: "running",
     };
 
     useUiStore.getState().setDialog({ kind: "project", entity: project });
-    useUiStore.getState().setDeleteTarget({ kind: "task", id: "t1", name: "Refactor" });
+    useUiStore.getState().setDeleteTarget({
+      kind: "project",
+      id: "p1",
+      name: "Ora",
+      sessionIds: ["s1"],
+    });
 
     expect(useUiStore.getState().dialog).toEqual({ kind: "project", entity: project });
-    expect(useUiStore.getState().deleteTarget).toEqual({ kind: "task", id: "t1", name: "Refactor" });
+    expect(useUiStore.getState().deleteTarget).toEqual({
+      kind: "project",
+      id: "p1",
+      name: "Ora",
+      sessionIds: ["s1"],
+    });
 
     // Dialog state with task/session kinds preserves their lineage fields.
     useUiStore.getState().setDialog({ kind: "task", projectId: "p1", entity: task });

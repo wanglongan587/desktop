@@ -1,311 +1,226 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { acp } from "@ora/contracts";
-import {
-  createChatStore,
-  isConversationResponding,
-  type AcpClient,
-  type AcpSessionNotificationListener,
-  type SessionConversation,
-} from "../src/index.js";
+import type { LoadSessionEvent, PromptSessionEvent } from "@ora/contracts";
+import { createChatStore, type ChatSessionClient } from "../src/index.js";
 
-class RecordingAcpClient implements AcpClient {
-  readonly prompts: acp.PromptRequest[] = [];
-  readonly cancellations: acp.CancelNotification[] = [];
-  private readonly listeners = new Set<AcpSessionNotificationListener>();
-  private readonly heldPrompts = new Map<string, (response: acp.PromptResponse) => void>();
-
-  async newSession(_request: acp.NewSessionRequest): Promise<acp.NewSessionResponse> {
-    return { sessionId: "agent-session-new" };
-  }
-
-  async prompt(request: acp.PromptRequest): Promise<acp.PromptResponse> {
-    this.prompts.push(request);
-    return new Promise((resolve) => {
-      this.heldPrompts.set(request.sessionId, resolve);
-    });
-  }
-
-  async cancel(notification: acp.CancelNotification): Promise<void> {
-    this.cancellations.push(notification);
-    this.release(notification.sessionId, "cancelled");
-  }
-
-  subscribe(listener: AcpSessionNotificationListener): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  emit(notification: acp.SessionNotification): void {
-    this.listeners.forEach((listener) => listener(notification));
-  }
-
-  release(sessionId: string, stopReason: acp.StopReason = "end_turn"): void {
-    this.heldPrompts.get(sessionId)?.({ stopReason });
-    this.heldPrompts.delete(sessionId);
-  }
-
-  failPrompt(error: Error): void {
-    this.prompt = async () => {
-      throw error;
-    };
-  }
-}
-
-test("normalizes thought, plan, parallel tools, and message chunks into one turn", async () => {
-  const client = new RecordingAcpClient();
-  const ids = ["turn-1", "user-1"];
-  const store = createChatStore(client, { createId: () => ids.shift()!, now: () => 100 });
-
-  const sending = store.getState().sendMessage({
-    oraSessionId: "ora-1",
-    agentSessionId: "agent-1",
-    text: " implement greeting ",
-  });
-  client.emit(textChunk("agent-1", "agent_thought_chunk", undefined, "Inspect "));
-  client.emit(textChunk("agent-1", "agent_thought_chunk", undefined, "files"));
-  client.emit({
-    sessionId: "agent-1",
-    update: {
-      sessionUpdate: "plan",
-      entries: [{ content: "Read", priority: "high", status: "in_progress" }],
-    },
-  });
-  client.emit(toolCall("agent-1", "tool-read", "Read file", "read"));
-  client.emit(toolCall("agent-1", "tool-edit", "Edit file", "edit"));
-  client.emit({
-    sessionId: "agent-1",
-    update: {
-      sessionUpdate: "tool_call_update",
-      toolCallId: "tool-edit",
-      status: "completed",
-      rawOutput: { changed: true },
-    },
-  });
-  client.emit({
-    sessionId: "agent-1",
-    update: {
-      sessionUpdate: "plan",
-      entries: [{ content: "Read", priority: "high", status: "completed" }],
-    },
-  });
-  client.emit(textChunk("agent-1", "agent_message_chunk", "reply-1", "Done"));
-
-  client.release("agent-1");
-  await sending;
-
-  assert.deepEqual(store.getState().conversations["ora-1"], {
-    turns: [{
-      id: "turn-1",
-      userMessage: {
-        kind: "message",
-        id: "user-1",
-        role: "user",
-        content: "implement greeting",
-        createdAt: 100,
-      },
-      items: [
-        {
-          kind: "thought",
-          id: "thought-implicit-turn-1",
-          content: "Inspect files",
-          createdAt: 100,
-        },
-        {
-          kind: "plan",
-          id: "plan-turn-1",
-          entries: [{ content: "Read", priority: "high", status: "completed" }],
-          createdAt: 100,
-          updatedAt: 100,
-        },
-        {
-          kind: "toolCall",
-          id: "tool-read",
-          title: "Read file",
-          toolKind: "read",
-          status: "pending",
-          content: [],
-          locations: [],
-          createdAt: 100,
-          updatedAt: 100,
-        },
-        {
-          kind: "toolCall",
-          id: "tool-edit",
-          title: "Edit file",
-          toolKind: "edit",
-          status: "completed",
-          content: [],
-          locations: [],
-          rawOutput: { changed: true },
-          createdAt: 100,
-          updatedAt: 100,
-        },
-        {
-          kind: "message",
-          id: "message-reply-1",
-          role: "assistant",
-          content: "Done",
-          createdAt: 100,
-          protocolMessageId: "reply-1",
-        },
-      ],
-      status: "completed",
-      stopReason: "end_turn",
-      error: null,
-      createdAt: 100,
-    }],
-    error: null,
-  });
-  assert.equal(isConversationResponding(store.getState().conversations["ora-1"]), false);
-});
-
-test("routes concurrent streams to their owning sessions", async () => {
-  const client = new RecordingAcpClient();
-  let id = 0;
-  const store = createChatStore(client, { createId: () => `id-${++id}` });
-  const first = store.getState().sendMessage({ oraSessionId: "ora-1", agentSessionId: "agent-1", text: "first" });
-  const second = store.getState().sendMessage({ oraSessionId: "ora-2", agentSessionId: "agent-2", text: "second" });
-
-  client.emit(textChunk("agent-2", "agent_message_chunk", "reply-2", "two"));
-  client.emit(textChunk("agent-1", "agent_message_chunk", "reply-1", "one"));
-  client.release("agent-1");
-  client.release("agent-2");
-  await Promise.all([first, second]);
-
-  assert.equal(readAssistantText(store.getState().conversations["ora-1"]!), "one");
-  assert.equal(readAssistantText(store.getState().conversations["ora-2"]!), "two");
-});
-
-test("cancels only the active turn and records the protocol stop reason", async () => {
-  const client = new RecordingAcpClient();
-  const ids = ["turn-cancel", "user-cancel"];
-  const store = createChatStore(client, { createId: () => ids.shift()! });
-  const sending = store.getState().sendMessage({
-    oraSessionId: "ora-cancel",
-    agentSessionId: "agent-cancel",
-    text: "implement",
-  });
-
-  await store.getState().cancelMessage({
-    oraSessionId: "ora-cancel",
-    agentSessionId: "agent-cancel",
-  });
-  await sending;
-
-  assert.deepEqual(client.cancellations, [{ sessionId: "agent-cancel" }]);
-  assert.equal(store.getState().conversations["ora-cancel"]!.turns[0]!.status, "cancelled");
-  assert.equal(store.getState().conversations["ora-cancel"]!.turns[0]!.stopReason, "cancelled");
-});
-
-test("keeps unsupported content visible and accepts id-less agent chunks", async () => {
-  const client = new RecordingAcpClient();
-  const ids = ["turn-content", "user-content", "unsupported-1"];
-  const store = createChatStore(client, { createId: () => ids.shift()!, now: () => 50 });
-  const sending = store.getState().sendMessage({
-    oraSessionId: "ora-content",
-    agentSessionId: "agent-content",
-    text: "show content",
-  });
-
-  client.emit(textChunk("agent-content", "agent_message_chunk", undefined, "Hello"));
-  client.emit({
-    sessionId: "agent-content",
-    update: {
-      sessionUpdate: "agent_message_chunk",
-      content: { type: "image", data: "AA==", mimeType: "image/png" },
-    },
-  });
-  client.release("agent-content");
-  await sending;
-
-  assert.deepEqual(store.getState().conversations["ora-content"]!.turns[0]!.items, [
-    {
-      kind: "message",
-      id: "message-implicit-turn-content",
-      role: "assistant",
-      content: "Hello",
-      createdAt: 50,
-    },
-    {
-      kind: "unsupportedContent",
-      id: "unsupported-1",
-      source: "message",
-      contentType: "image",
-      createdAt: 50,
-    },
-  ]);
-});
-
-test("marks the turn failed while preserving the user message when prompting rejects", async () => {
-  const client = new RecordingAcpClient();
-  client.failPrompt(new Error("agent unavailable"));
-  const ids = ["turn-error", "user-error"];
-  const store = createChatStore(client, { createId: () => ids.shift()!, now: () => 200 });
-
-  await assert.rejects(
-    store.getState().sendMessage({
-      oraSessionId: "ora-error",
-      agentSessionId: "agent-error",
-      text: "keep this",
-    }),
-    /agent unavailable/,
-  );
-
-  assert.deepEqual(store.getState().conversations["ora-error"], {
-    turns: [{
-      id: "turn-error",
-      userMessage: {
-        kind: "message",
-        id: "user-error",
-        role: "user",
-        content: "keep this",
-        createdAt: 200,
-      },
-      items: [],
-      status: "failed",
-      stopReason: null,
-      error: "agent unavailable",
-      createdAt: 200,
-    }],
-    error: "agent unavailable",
-  });
-});
-
-/** Builds one text session update with either an explicit or implicit message id. */
-function textChunk(
-  sessionId: string,
-  sessionUpdate: "agent_message_chunk" | "agent_thought_chunk",
-  messageId: string | undefined,
+/** Builds one ACP text update without exposing protocol transport details to the tests. */
+function textEvent(
+  role: "user_message_chunk" | "agent_message_chunk",
   text: string,
-): acp.SessionNotification {
+  messageId: string,
+): LoadSessionEvent {
   return {
-    sessionId,
+    type: "session_update",
     update: {
-      sessionUpdate,
-      ...(messageId === undefined ? {} : { messageId }),
+      sessionUpdate: role,
+      messageId,
       content: { type: "text", text },
     },
   };
 }
 
-/** Builds one pending tool call notification. */
-function toolCall(
-  sessionId: string,
-  toolCallId: string,
-  title: string,
-  kind: acp.ToolKind,
-): acp.SessionNotification {
-  return {
-    sessionId,
-    update: { sessionUpdate: "tool_call", toolCallId, title, kind, status: "pending" },
-  };
+/** Yields a deterministic finite stream in the same shape as the generated client. */
+async function* events<Event>(items: Event[]): AsyncIterable<Event> {
+  for (const item of items) yield item;
 }
 
-/** Reads all assistant message text from the latest turn. */
-function readAssistantText(conversation: SessionConversation): string {
-  return conversation.turns.at(-1)!.items
-    .filter((item) => item.kind === "message" && item.role === "assistant")
-    .map((item) => item.kind === "message" ? item.content : "")
-    .join("");
-}
+test("loads provider history and reconstructs turns from message boundaries", async () => {
+  const client: ChatSessionClient = {
+    load: () => events([
+      textEvent("user_message_chunk", "hel", "user-1"),
+      textEvent("user_message_chunk", "lo", "user-1"),
+      textEvent("user_message_chunk", "again", "user-2"),
+      textEvent("agent_message_chunk", "hi", "agent-1"),
+      { type: "completed" },
+    ]),
+    prompt: () => events<PromptSessionEvent>([]),
+    respondToPermission: async () => ({}),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+
+  assert.deepEqual(store.getState().conversations["ora-1"], {
+    turns: [
+      {
+        id: "local-1",
+        userMessage: { kind: "message", id: "local-2", role: "user", content: "hello", createdAt: 42, protocolMessageId: "user-1" },
+        items: [],
+        status: "completed",
+        stopReason: null,
+        error: null,
+        createdAt: 42,
+      },
+      {
+        id: "local-3",
+        userMessage: { kind: "message", id: "local-4", role: "user", content: "again", createdAt: 42, protocolMessageId: "user-2" },
+        items: [
+          { kind: "message", id: "message-agent-1", role: "assistant", content: "hi", createdAt: 42, protocolMessageId: "agent-1" },
+        ],
+        status: "completed",
+        stopReason: null,
+        error: null,
+        createdAt: 42,
+      },
+    ],
+    isLoaded: true,
+    isLoading: false,
+    isResponding: false,
+    pendingPermissions: [],
+    error: null,
+  });
+});
+
+test("aborting a prompt retains the partial response and marks the turn cancelled", async () => {
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([]),
+    prompt: (_request, options) => ({
+      async *[Symbol.asyncIterator]() {
+        yield textEvent("agent_message_chunk", "partial", "agent-1") as PromptSessionEvent;
+        yield {
+          type: "permission_request",
+          permissionRequestId: "permission-1",
+          toolCall: { toolCallId: "tool-1", title: "Run command" },
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        } satisfies PromptSessionEvent;
+        await new Promise<void>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            const error = new Error("cancelled");
+            error.name = "AbortError";
+            reject(error);
+          }, { once: true });
+        });
+      },
+    }),
+    respondToPermission: async () => ({}),
+  };
+  const store = createChatStore(client, { createId: () => "id-1", now: () => 42 });
+  const sending = store.getState().sendMessage({ oraSessionId: "ora-1", text: " hello " });
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+  store.getState().stopGeneration("ora-1");
+  await sending;
+
+  const conversation = store.getState().conversations["ora-1"];
+  assert.deepEqual(conversation?.turns, [
+    {
+      id: "id-1",
+      userMessage: { kind: "message", id: "id-1", role: "user", content: "hello", createdAt: 42 },
+      items: [
+        { kind: "message", id: "message-agent-1", role: "assistant", content: "partial", createdAt: 42, protocolMessageId: "agent-1" },
+      ],
+      status: "cancelled",
+      stopReason: null,
+      error: null,
+      createdAt: 42,
+    },
+  ]);
+  assert.equal(conversation?.isResponding, false);
+  assert.deepEqual(conversation?.pendingPermissions, []);
+});
+
+test("shows the user turn on a draft key before promoting to the created session", async () => {
+  let promptSessionId: string | undefined;
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([]),
+    prompt: (request) => {
+      promptSessionId = request.sessionId;
+      return events<PromptSessionEvent>([
+        textEvent("agent_message_chunk", "done", "agent-1") as PromptSessionEvent,
+        { type: "completed", stopReason: "end_turn" },
+      ]);
+    },
+    respondToPermission: async () => ({}),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, { createId: () => `local-${++nextId}`, now: () => 42 });
+
+  let resolveCreate: (id: string) => void = () => {};
+  const created = new Promise<string>((resolve) => { resolveCreate = resolve; });
+  const drafts: string[] = [];
+  const promoted: string[] = [];
+
+  const sending = store.getState().sendMessage({
+    text: "hi",
+    createSession: () => created,
+    onDraft: (id) => drafts.push(id),
+    onSessionCreated: (id) => promoted.push(id),
+  });
+
+  // The turn is visible under the draft key while the session is still being created.
+  assert.deepEqual(drafts, ["draft-local-1"]);
+  const draft = store.getState().conversations["draft-local-1"];
+  assert.equal(draft?.turns.length, 1);
+  assert.equal(draft?.turns[0]?.userMessage.content, "hi");
+  assert.equal(draft?.isResponding, true);
+  assert.equal(store.getState().conversations["real-session"], undefined);
+
+  resolveCreate("real-session");
+  await sending;
+
+  // The conversation has moved onto the real id and the draft key is gone.
+  assert.deepEqual(promoted, ["real-session"]);
+  assert.equal(promptSessionId, "real-session");
+  assert.equal(store.getState().conversations["draft-local-1"], undefined);
+  const conversation = store.getState().conversations["real-session"];
+  assert.equal(conversation?.isResponding, false);
+  // The live turn is authoritative, so the promoted conversation is already
+  // "loaded" and the workspace never re-loads (and re-slides) it.
+  assert.equal(conversation?.isLoaded, true);
+  assert.deepEqual(conversation?.turns[0]?.items, [
+    { kind: "message", id: "message-agent-1", role: "assistant", content: "done", createdAt: 42, protocolMessageId: "agent-1" },
+  ]);
+  assert.equal(conversation?.turns[0]?.status, "completed");
+});
+
+test("rolls back staged load updates when replay fails before completion", async () => {
+  const client: ChatSessionClient = {
+    load: () => ({
+      async *[Symbol.asyncIterator]() {
+        yield textEvent("agent_message_chunk", "uncommitted", "agent-new");
+        throw new Error("load failed");
+      },
+    }),
+    prompt: () => events<PromptSessionEvent>([]),
+    respondToPermission: async () => ({}),
+  };
+  const store = createChatStore(client, { createId: () => "local", now: () => 42 });
+  const previousTurn = {
+    id: "old-turn",
+    userMessage: { kind: "message" as const, id: "old-user", role: "user" as const, content: "prompt", createdAt: 1 },
+    items: [
+      { kind: "message" as const, id: "old", role: "assistant" as const, content: "history", createdAt: 1 },
+    ],
+    status: "completed" as const,
+    stopReason: null,
+    error: null,
+    createdAt: 1,
+  };
+  store.setState({
+    conversations: {
+      "ora-1": {
+        turns: [previousTurn],
+        isLoaded: true,
+        isLoading: false,
+        isResponding: false,
+        pendingPermissions: [],
+        error: null,
+      },
+    },
+  });
+
+  await assert.rejects(store.getState().loadSession("ora-1"), /load failed/);
+
+  assert.deepEqual(store.getState().conversations["ora-1"], {
+    turns: [previousTurn],
+    isLoaded: true,
+    isLoading: false,
+    isResponding: false,
+    pendingPermissions: [],
+    error: "load failed",
+  });
+});

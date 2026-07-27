@@ -6,18 +6,24 @@ use std::path::PathBuf;
 pub struct LoggingConfig {
     pub level: LogLevel,
     pub output: LogOutput,
+    pub timezone: chrono_tz::Tz,
 }
 
 impl LoggingConfig {
-    /// Builds a logging configuration from an explicit level and output mode.
-    pub fn new(level: LogLevel, output: LogOutput) -> Self {
-        Self { level, output }
+    /// Builds a logging configuration from an explicit level, output mode, and process timezone.
+    pub fn new(level: LogLevel, output: LogOutput, timezone: chrono_tz::Tz) -> Self {
+        Self {
+            level,
+            output,
+            timezone,
+        }
     }
 }
 
 /// Enumerates the supported event filtering levels for shared runtime logging.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LogLevel {
+    Trace,
     Debug,
     Info,
     Warn,
