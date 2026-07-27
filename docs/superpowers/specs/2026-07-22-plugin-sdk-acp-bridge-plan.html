@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ora 接入本地 Agent 方案(Claude Code / codex)</title>
+<style>
+  :root{
+    --fg:#1b1f24; --muted:#57606a; --bg:#fff; --card:#fbfbfc; --line:#e3e6ea;
+    --p1:#0969da; --p2:#1a7f37; --p3:#bf8700; --p4:#8250df;
+    --p1bg:#ddf4ff; --p2bg:#dafbe1; --p3bg:#fff8c5; --p4bg:#f1e8ff;
+    --why:#0969da; --whybg:#ddf4ff;
+    --code-bg:#0d1117; --code-fg:#e6edf3; --code-muted:#8b949e;
+  }
+  *{ box-sizing:border-box; }
+  html{ font:16.5px/1.8 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; color:var(--fg); background:#f6f8fa; }
+  body{ max-width:1060px; margin:0 auto; padding:0 0 120px; background:var(--bg); box-shadow:0 0 0 1px var(--line); }
+  .wrap{ padding:40px 46px; }
+  header{ border-bottom:1px solid var(--line); padding-bottom:22px; margin-bottom:30px; }
+  h1{ font-size:32px; margin:0 0 6px; letter-spacing:-.01em; }
+  .subtitle{ color:var(--muted); font-size:14.5px; margin:0; }
+
+  /* chapter dividers */
+  .chap{ margin:56px 0 22px; padding:16px 18px; border-radius:10px; background:linear-gradient(90deg,#1b1f24,#24292f); color:#fff; }
+  .chap .n{ font-size:13px; letter-spacing:.12em; text-transform:uppercase; color:#8b949e; display:block; }
+  .chap .t{ font-size:22px; font-weight:700; display:block; margin-top:2px; }
+  h2{ font-size:21px; margin:42px 0 14px; padding-left:12px; border-left:4px solid var(--p3); }
+  h3{ font-size:17px; margin:28px 0 10px; color:#24292f; }
+  p{ margin:12px 0; }
+  code{ font-family:"SFMono-Regular",Consolas,"Liberation Mono",Menlo,monospace; font-size:13px; background:var(--p3bg); color:#5d4200; padding:1.5px 5px; border-radius:4px; }
+  .path{ color:var(--p1); }
+
+  nav.toc{ position:sticky; top:0; z-index:5; background:rgba(255,255,255,.94); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); padding:11px 46px; margin:0 -46px 30px; font-size:13px; }
+  nav.toc a{ color:var(--muted); text-decoration:none; margin-right:16px; white-space:nowrap; }
+  nav.toc a:hover{ color:var(--p1); }
+
+  .callout{ margin:16px 0; padding:14px 18px; border-radius:8px; font-size:15px; }
+  .callout.key{ background:var(--p1bg); border-left:4px solid var(--p1); }
+  .callout.warn{ background:var(--p3bg); border-left:4px solid var(--p3); }
+  .callout.ok{ background:var(--p2bg); border-left:4px solid var(--p2); }
+  .callout.note{ background:#f6f8fa; border-left:4px solid var(--muted); }
+  .callout b{ display:block; margin-bottom:4px; }
+
+  /* "为什么" before each code block */
+  .why{ margin:18px 0 8px; padding:11px 16px; background:var(--whybg); border-left:4px solid var(--why); border-radius:6px; font-size:14.5px; }
+  .why b{ color:var(--why); font-size:13px; letter-spacing:.04em; text-transform:uppercase; display:block; margin-bottom:3px; }
+
+  /* "什么意思" after each code block */
+  .explain{ list-style:none; padding:0; margin:10px 0 22px; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .explain li{ padding:10px 16px; border-top:1px solid var(--line); font-size:14px; }
+  .explain li:first-child{ border-top:0; }
+  .explain li:nth-child(even){ background:#fbfbfc; }
+  .explain li b{ color:var(--p1); font-family:monospace; font-size:12.5px; }
+  .explain .h{ background:#1b1f24; color:#fff; font-size:12px; letter-spacing:.06em; text-transform:uppercase; }
+
+  /* code blocks — always full-width, framed, dark */
+  .code{ margin:0 0 4px; border:1px solid var(--line); border-radius:8px 8px 0 0; overflow:hidden; }
+  .code .head{ background:#f6f8fa; padding:8px 12px; font-size:12px; color:var(--muted); border-bottom:1px solid var(--line); font-family:monospace; }
+  .code pre{ margin:0; background:var(--code-bg); color:var(--code-fg); padding:14px 16px; overflow:auto; max-height:460px; }
+  .code pre code{ background:none; color:inherit; padding:0; font-size:12.5px; line-height:1.65; }
+  .cmt{ color:var(--code-muted); }
+
+  table{ border-collapse:collapse; width:100%; margin:16px 0; font-size:14px; }
+  th,td{ border:1px solid var(--line); padding:9px 11px; text-align:left; vertical-align:top; }
+  th{ background:#f6f8fa; font-weight:600; }
+  tr:nth-child(even) td{ background:#fbfbfc; }
+  td .k{ font-weight:600; }
+  .yes{ color:var(--p2); font-weight:600; } .no{ color:#9a6700; font-weight:600; }
+
+  /* diagrams (pure CSS, no network) */
+  .layer{ display:flex; align-items:stretch; gap:0; flex-wrap:wrap; margin:20px 0; }
+  .layer .party{ flex:1 1 150px; min-width:130px; border-radius:10px; padding:16px 10px; text-align:center; border:2px solid; }
+  .layer .party b{ font-size:15px; display:block; }
+  .layer .party small{ color:var(--muted); font-size:12px; display:block; margin-top:3px; }
+  .layer .p1{ background:var(--p1bg); border-color:var(--p1); }
+  .layer .p2{ background:var(--p2bg); border-color:var(--p2); }
+  .layer .p3{ background:var(--p3bg); border-color:var(--p3); }
+  .layer .p4{ background:var(--p4bg); border-color:var(--p4); }
+  .layer .arr{ flex:0 1 140px; min-width:100px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:11.5px; color:var(--muted); text-align:center; }
+  .layer .arr .ln{ width:100%; height:2px; background:currentColor; position:relative; margin:6px 0; }
+  .layer .arr .ln::after{ content:""; position:absolute; right:-1px; top:-4px; border:5px solid transparent; border-left-color:currentColor; }
+  .layer .arr .lbl{ font-weight:600; color:#24292f; }
+
+  /* flow pipeline */
+  .flow{ list-style:none; margin:20px 0; padding:0; }
+  .flow .step{ display:flex; align-items:flex-start; background:var(--card); border:1px solid var(--line); border-left-width:4px; border-radius:8px; padding:13px 16px; margin:0; }
+  .flow .step.life{ border-left-color:var(--p2); }
+  .flow .step.chat{ border-left-color:var(--p3); }
+  .flow .step.p4{ border-left-color:var(--p4); }
+  .flow .step .b{ flex:1; }
+  .flow .step .b b{ font-size:15px; }
+  .flow .step .b small{ color:var(--muted); display:block; font-size:13px; margin-top:3px; }
+  .flow .down{ text-align:center; color:var(--muted); font-size:20px; line-height:1; margin:4px 0; }
+  .flow .ph{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#fff; background:var(--p2); display:inline-block; padding:3px 11px; border-radius:11px; margin:16px 0 8px; }
+  .flow .ph.chat{ background:var(--p3); }
+  .flow .ph.p4{ background:var(--p4); }
+  .flow .branch{ margin:8px 0 8px 24px; padding:11px 16px; background:#f6f8fa; border-radius:8px; border:1px dashed var(--line); font-size:14px; }
+
+  .who{ display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:50%; color:#fff; font-size:12px; font-weight:700; margin-right:9px; flex:0 0 auto; }
+  .who.p1{ background:var(--p1); } .who.p2{ background:var(--p2); } .who.p3{ background:var(--p3); } .who.p4{ background:var(--p4); }
+
+  .legend{ font-size:13.5px; color:var(--muted); margin:12px 0 4px; display:flex; gap:20px; flex-wrap:wrap; }
+  .legend .dot{ display:inline-block; width:13px; height:13px; border-radius:3px; margin-right:6px; vertical-align:middle; }
+  ul.clean{ padding-left:22px; } ul.clean li{ margin:6px 0; }
+  .small{ font-size:13.5px; color:var(--muted); }
+  .lead{ font-size:17px; line-height:1.85; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>Ora 接入本地 Agent 方案(Claude Code / codex)</h1>
+  <p class="subtitle">2026-07-24 重构版 · 先说人话讲全局,再深入到代码(每段代码都有"为什么"和"什么意思") · 代码在 <span class="path">packages/plugin-sdk/src/acp/</span></p>
+</header>
+
+<nav class="toc">
+  <a href="#c0">0 这个方案做什么</a>
+  <a href="#c1">1 整体介绍</a>
+  <a href="#c2">2 深入:代码</a>
+  <a href="#s-bridge">· 桥六件</a>
+  <a href="#s-framing">· 粘包分包</a>
+  <a href="#s-perm">· 权限</a>
+  <a href="#s-back">· 背压</a>
+  <a href="#s-use">· 怎么用</a>
+</nav>
+
+<!-- ============================ 第 0 章 ============================ -->
+<div class="chap" id="c0"><span class="n">第 0 章</span><span class="t">这个方案是做什么的</span></div>
+
+<p class="lead">Ora 是一个 AI 编程 IDE(像 VS Code 那样的桌面/网页工具,但内带 AI)。它支持装"插件",其中有一种插件叫 <b>agent 插件</b>——专门给你提供"能聊天的 AI 助手"。但 Ora 自己并不自带 Claude Code 这种 agent;本方案就是写一段<b>"桥"代码</b>,把<b>你电脑上已经装好的 Claude Code(或 codex)</b>接成 Ora 的 agent 插件,让你<b>在 Ora 的聊天框里直接用上 Claude Code</b>。一句话:让你不用离开 Ora,就能用它干活。</p>
+
+<div class="callout note"><b>打个比方</b>Ora 像一家餐厅,agent 插件像"会做菜的厨师"。但 Ora 自己没雇 Claude Code 这位厨师,只留了个"厨师工位"。本方案就是给这个工位配一个"翻译服务员"(桥):Ora 前台听不懂 Claude Code 说的方言(ACP),Claude Code 也听不懂 Ora 内部的话;翻译服务员站在中间,两边话互译,菜(对话)就流转起来了。</div>
+
+<!-- ============================ 第 1 章 ============================ -->
+<div class="chap" id="c1"><span class="n">第 1 章</span><span class="t">整体介绍(先看懂全局,不抠细节)</span></div>
+
+<h2 id="s1-1">1.1 Ora 长什么样:四方角色</h2>
+<p>整个流程里有四个角色。先认人,再认它们之间的话。</p>
+<table>
+<tr><th style="width:90px">代号</th><th>是谁</th><th style="width:42%">一句话职责</th></tr>
+<tr><td><span class="k">①</span></td><td>你 + 浏览器(Ora 的聊天界面)</td><td>你打字发消息、看 AI 回的字</td></tr>
+<tr><td><span class="k">②</span></td><td>Ora 后端(用 Rust 写的宿主程序)</td><td>管插件、转发消息;<b>听不懂 ACP</b></td></tr>
+<tr><td><span class="k">③</span></td><td>插件进程(每个 agent 插件一个 Bun 进程)</td><td>跑"桥"代码,在 ② 和 ④ 之间翻译</td></tr>
+<tr><td><span class="k">④</span></td><td>本地 agent(claude-agent-acp / codex)</td><td>真正干活的 AI,说 ACP 这门方言</td></tr>
+</table>
+
+<div class="layer">
+  <div class="party p1"><b>① 浏览器</b><small>你 + 聊天 UI</small></div>
+  <div class="arr"><span class="lbl">HTTP</span><div class="ln"></div><span>边界外(应用层)</span></div>
+  <div class="party p2"><b>② Ora 后端</b><small>Rust 宿主 · 不管 ACP</small></div>
+  <div class="arr"><span class="lbl">Ora 协议</span><div class="ln"></div><span>5字节长度头 + JSON</span></div>
+  <div class="party p3"><b>③ 插件进程</b><small>跑"桥" · 翻译官</small></div>
+  <div class="arr"><span class="lbl">ACP</span><div class="ln"></div><span>换行分隔 + JSON</span></div>
+  <div class="party p4"><b>④ 本地 agent</b><small>Claude Code 等</small></div>
+</div>
+<p class="small">关键:② 全程<b>不碰</b> ACP。ACP 只在 ③↔④ 之间。② 只见 Ora 自己的话。所以这个桥全装在 ③ 里,② 一行代码都不用改。</p>
+
+<h2 id="s1-2">1.2 两种插件,本方案只做一种</h2>
+<p>Ora 的插件按"种类"分,清单里写死是哪种:</p>
+<table>
+<tr><th></th><th>agent 插件(本方案做这个)</th><th>workbench 插件(不做)</th></tr>
+<tr><td><b>能干啥</b></td><td>给你提供能聊天的 AI</td><td>别的东西(面板/工具等)</td></tr>
+<tr><td><b>v1 能跑代码吗</b></td><td class="yes">能,开进程</td><td class="no">不能,只是目录里一条记录</td></tr>
+<tr><td><b>有"开始对话"这个动作吗</b></td><td class="yes">有</td><td class="no">没有(连进程都没)</td></tr>
+</table>
+<div class="callout note"><b>回应一个常见误解</b>有人问"workbench 插件是不是也要开始对话?"——不会。不同种类的插件用不同的一套方法,workbench 这套根本没"开始对话"这个方法。本方案只管 agent 这一种。</div>
+
+<h2 id="s1-3">1.3 "启动插件"和"开始聊天"是两回事(重要,之前踩过坑)</h2>
+<p>这是最容易混的一点,必须先讲清。一个 agent 插件从装上到你和它聊上天,分三步,中间隔着你的<b>一次回车</b>:</p>
+<ol class="flow">
+  <li class="ph">第一步 · 登记(进程还没拉起来)</li>
+  <li class="step life"><span class="who p2">②</span><div class="b"><b>装上插件,记进目录</b><small>② 读插件清单,知道"有这么个 agent 插件、它声明了一个 provider"。此刻进程没开、还不能聊。</small></div></li>
+  <li class="down">↓</li>
+  <li class="ph">第二步 · 启动插件(拉进程 + 激活)</li>
+  <li class="step life"><span class="who p2">②</span><div class="b"><b>拉起 ③ 进程 + 握手 + 激活</b><small>② 开一个 Bun 进程,握手(确认身份/版本),再调它的"激活"方法,让它把自己的能力(provider)报上来。<b>到这步"插件启动完"</b>——但还没聊任何天。</small></div></li>
+  <li class="down">↓ ……你某天在聊天框打字、按回车 …… ↓</li>
+  <li class="ph chat">第三步 · 开始聊天(这才轮到"开始对话")</li>
+  <li class="step chat"><span class="who p2">②</span><div class="b"><b>② 发"开始对话"请求</b><small>你按回车,② 才把你的消息当成一次"开始对话"请求,经 Ora 协议送到 ③,③ 再交给桥去驱动 ④。<b>这是"开始对话",不是"启动插件"</b>。</small></div></li>
+</ol>
+<div class="callout warn"><b>为什么之前会看混</b>因为"激活"有个"懒启动"模式:第一次你发消息时,② 会顺手把第二步(激活)和第三步(开始对话)连着做。两步挨在一起,看着像一步。但它们是两条独立的协议消息,各有各的超时(激活 15 秒、对话调用 60 秒)。<b>"启动插件" ≠ "开始聊天"</b>。</div>
+
+<h2 id="s1-4">1.4 这个"桥"是什么</h2>
+<p>桥是<b>一段住在 ③ 插件进程里的代码</b>,干两件翻译活:</p>
+<ul class="clean">
+<li><b>把 Ora 的请求翻给 Claude Code</b>:Ora 说"开始一轮对话(带这句 prompt)",桥翻成 ACP 的"开个会话 + 跑这一句"。</li>
+<li><b>把 Claude Code 的回吐翻给 Ora</b>:Claude Code 边想边往外吐字、调工具、报用量;桥把这些翻成 Ora 认识的事件流,经 ② 流回你屏幕。</li>
+</ul>
+<p>桥是<b>可选脚手架</b>——只在你"想包一个本地 ACP 说的 agent"时用。如果你接的是别的后端,可以手写 provider,不用这桥。</p>
+
+<h2 id="s1-5">1.5 一轮聊天怎么走(人话版)</h2>
+<ol class="flow">
+  <li class="step chat"><span class="who p1">①</span><div class="b"><b>你打字、按回车</b><small>"帮我把这个函数重构一下" → 经 HTTP 送到 ②。</small></div></li>
+  <li class="down">↓</li>
+  <li class="step chat"><span class="who p2">②</span><div class="b"><b>② 经 Ora 协议把请求送 ③</b><small>② 不管 ACP,只用 Ora 自己的话说"开始对话{这句话}"。</small></div></li>
+  <li class="down">↓</li>
+  <li class="step chat"><span class="who p3">③</span><div class="b"><b>桥拉起 ④、开 ACP 会话、把 prompt 送给 ④</b><small>桥用 ACP 话对 Claude Code 说"开个会话、跑这句"。</small></div></li>
+  <li class="down">↓</li>
+  <li class="step p4"><span class="who p4">④</span><div class="b"><b>Claude Code 边想边吐</b><small>一个字一个字往外吐、调工具(读文件/改代码)、报 token 用量……</small></div></li>
+  <li class="down">↓</li>
+  <li class="step chat"><span class="who p3">③</span><div class="b"><b>桥翻译成 Ora 事件,流回 ② → ①</b><small>吐的字 → "文本增量"事件;调工具 → "工具调用"事件;用量 → "用量"事件。你屏幕上字一个个冒出来、出工具卡片。</small></div></li>
+  <li class="down">↓</li>
+  <li class="step p4"><span class="who p4">④</span><div class="b"><b>Claude Code 说"这轮说完了"</b><small>给个收尾原因(正常结束/被取消/到上限)。</small></div></li>
+  <li class="down">↓</li>
+  <li class="step chat"><span class="who p3">③</span><div class="b"><b>桥把这轮结果报给 ②,一轮结束</b><small>续聊再发一句就走"发消息"(复用同一个 ④、同一个会话)。</small></div></li>
+</ol>
+
+<!-- ============================ 第 2 章 ============================ -->
+<div class="chap" id="c2"><span class="n">第 2 章</span><span class="t">深入:技术细节(每段代码都讲为什么、什么意思)</span></div>
+<p class="small">下面进入代码。规矩:每段代码前有<b>"为什么需要它"</b>,代码后有<b>"什么意思"</b>逐条解释。代码都在独立框里,不与正文混杂。</p>
+
+<h2 id="s-framing">2.1 粘包/分包:两条"语言"怎么不串味</h2>
+<p>这是上一轮你问的问题,正式写进方案。<b>为什么会串味</b>:不管管道还是 TCP,操作系统只管"传字节",不管"哪几个字节属于一条消息"。所以可能发生两种情况——</p>
+<ul class="clean">
+<li><b>粘包</b>:一次读出来的字节里,塞了好几条消息粘在一起。</li>
+<li><b>分包</b>:一条消息被拆成好几段,分好几次读出来。</li>
+</ul>
+<p>两条线用两种不同的"切消息"办法,各自处理这两种情况。</p>
+
+<h3>2.1.1 Ora 协议(②↔③):用"长度前缀"切</h3>
+<p>Ora 协议每条消息前面加 5 个字节的"长度头"(1 字节类型 + 4 字节大端长度),后面跟那么长的内容。读的时候:先读够 5 字节拿到长度,再读够那么长的内容。长度头就是"消息边界"。</p>
+
+<div class="why"><b>为什么这么设计</b>长度前缀法是抗粘包/分包的标准做法:读到长度就知道要凑多少字节,凑齐就是一整条;一次读出来多条,就一条条消费完。还能在读之前先校验长度合不合法,防止对端发个"假长度"骗我们分配巨大内存。</div>
+<div class="code"><div class="head">packages/plugin-runtime/src/transport/frame.ts · 逐块解码器(简化)</div><pre><code><span class="cmt">// 常量:5字节头,单帧上限8MB</span>
+export const FRAME_HEADER_BYTES = 5;
+export const MAX_FRAME_BYTES = 8 * 1024 * 1024;
+
+export class FrameDecoder {
+  #header = new Uint8Array(FRAME_HEADER_BYTES);
+  #headerFilled = 0;          <span class="cmt">// 头已凑齐几个字节</span>
+  #payload;                    <span class="cmt">// 凑齐头后,按长度申请的体缓冲</span>
+  #payloadFilled = 0;
+
+  decodeChunk(chunk) {         <span class="cmt">// 每次管道吐一块就调一次</span>
+    const frames = []; let offset = 0;
+    while (offset &lt; chunk.length) {
+      if (this.#payload === undefined) {                <span class="cmt">// 还在凑头</span>
+        const c = Math.min(5 - this.#headerFilled, chunk.length - offset);
+        this.#header.set(chunk.subarray(offset, offset+c), this.#headerFilled);
+        this.#headerFilled += c; offset += c;
+        if (this.#headerFilled === 5) {                 <span class="cmt">// 头齐了</span>
+          const len = new DataView(this.#header.buffer).getInt32(1, false);
+          if (len &lt;= 0 || len &gt; MAX_FRAME_BYTES) throw new RangeError("bad len");
+          this.#payload = new Uint8Array(len);          <span class="cmt">// 校验过才分配</span>
+        }
+      } else {                                          <span class="cmt">// 在凑体</span>
+        const c = Math.min(this.#payload.length - this.#payloadFilled, chunk.length-offset);
+        this.#payload.set(chunk.subarray(offset, offset+c), this.#payloadFilled);
+        this.#payloadFilled += c; offset += c;
+        if (this.#payloadFilled === this.#payload.length) {  <span class="cmt">// 体齐了=一帧</span>
+          frames.push({ payload: this.#payload });
+          this.#header = new Uint8Array(5); this.#headerFilled = 0;
+          this.#payload = undefined; this.#payloadFilled = 0;
+        }
+      }
+    }
+    return frames;
+  }
+}</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>分包(半头/半体)</b>:#headerFilled / #payloadFilled 跨多次 decodeChunk 累加——头被拆到好几次读也能凑齐;体同理。</li>
+<li><b>粘包(一读多帧)</b>:while (offset &lt; chunk.length) 循环,一块里塞几帧就消费几帧。</li>
+<li><b>头没齐不解长度</b>:只有 #headerFilled===5 才取长度,不会拿半个头当长度。</li>
+<li><b>抗巨型帧 DoS</b>:先 throw 再 new Uint8Array(len) 之前校验 len ≤ 8MB,对端谎报 2GB 也不分配。</li>
+<li><b>留剩字节</b>:状态都在实例字段里,一次没消费完的字节自动留到下次。</li>
+<li><b>半帧收尾</b>:真实代码的 finish() 在 EOF 时若还有半帧,直接报错,不静默误解析。</li>
+</ul>
+
+<h3>2.1.2 ACP(③↔④):用"换行"切</h3>
+<p>ACP 每条消息是一行 JSON,行尾加 \n。读的时候:把字节攒进缓冲,看到 \n 就切出一条。换行就是"消息边界"。</p>
+
+<div class="why"><b>为什么这么设计</b>换行分隔简单、人类可读。前提是 JSON 里不能内嵌裸换行(compact JSON 用 JSON.stringify 生成,本就没有内嵌换行),所以 \n 是安全的边界。它同样能扛粘包(一行行切)和分包(没 \n 就继续攒)。</div>
+<div class="code"><div class="head">packages/plugin-sdk/src/acp/wire.ts · #pipeLoop 读端(含三处加固)</div><pre><code>const MAX_LINE_BYTES = 8 * 1024 * 1024; <span class="cmt">// 单行安全上限,镜像 Ora 侧 8MB</span>
+
+async #pipeLoop(stream, onLine) {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    if (value === undefined) continue;
+    buffer += decoder.decode(value, { stream: true });   <span class="cmt">// 多字节字符跨块用 stream:true</span>
+    if (buffer.length &gt; MAX_LINE_BYTES) {               <span class="cmt">// 本轮补:超长无换行=失控</span>
+      this.#handleExit(null, null);                        <span class="cmt">// 当作 ④ 出错,拒掉在飞请求</span>
+            try { this.#proc?.kill(); } catch {}      <span class="cmt">// 尽力杀 ④</span>
+      return;
+    }
+    let nl;
+    while ((nl = buffer.indexOf("\n")) !== -1) {           <span class="cmt">// 粘包:一读多行逐行吐</span>
+      const line = buffer.slice(0, nl).replace(/\r$/, ""); <span class="cmt">// 去 CR(CRLF 兼容)</span>
+      buffer = buffer.slice(nl + 1);                        <span class="cmt">// 剩余留下次(分包)</span>
+      try { onLine(line); }
+      catch (e) { this.#handlers.onStderr(`[acp:handler-error] ${e}`); }
+    }
+  }
+  buffer += decoder.decode();                              <span class="cmt">// flush 多字节尾部</span>
+  <span class="cmt">// 残留半行不再 emit:平衡截断(括号恰好闭合)能骗过 parse、误把崩溃当正常完成;交 #handleExit 拒在飞请求</span>
+}</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>分包(跨读半行)</b>:buffer 跨 read 累加,没出现 \n 就不 emit,继续等下一段。</li>
+<li><b>粘包(一读多行)</b>:while (indexOf("\n")!==-1) 把一块里的多行逐行切出来。</li>
+<li><b>多字节字符不截断</b>:TextDecoder {stream:true} + 末尾 decode() flush,避免半个汉字被拆。</li>
+<li><b>CRLF 兼容</b>:.replace(/\r$/,"") 去掉回车,不污染 JSON。</li>
+<li><b>退出半帧(已修正)</b>:④ 若在写出一条消息途中崩溃,管道 EOF 时残留的半行<b>不再当消息 emit</b>——因为平衡截断(括号恰好闭合的半行)能骗过 JSON.parse、被误当成正常响应 resolve 一个在飞请求,把崩溃伪装成正常完成。直接丢弃,由 #handleExit 把在飞请求判失败。</li>
+<li><b style="color:#9a6700">对抗审计揪出的三处缺陷(均已修)</b>:① 平衡截断误 resolve(见上一条);② handler 抛错会杀掉整条 stdout 读循环、静默丢光后续帧——已用 try/catch 包住 onLine;③ 并发写因 stdin writer 锁竞争丢帧(见下 #write)——已用 #writeTail 串行化。另:行长上限防超长无换行失控(超即拒+杀),与 Ora 侧 8MB 对齐。</li>
+</ul>
+<div class="why"><b>为什么需要 #write 串行化</b>#write 每次独占 stdin 的 writer;两个并发写(一个在飞 request 写 + 一个 session/cancel 通知写,或两个权限回包)会让第二个 getWriter() 抛 "locked"、那帧丢失。用一条 Promise 链把所有写排成队列,同一时刻只有一个 writer。</div>
+<div class="code"><div class="head">wire.ts · #write 写端串行化</div><pre><code>#writeTail: Promise&lt;void&gt; = Promise.resolve();
+
+async #write(line: string) {
+  const proc = this.#proc;
+  if (proc === undefined) throw new Error("ACP wire is not started");
+  const encoded = new TextEncoder().encode(line);
+  const write = this.#writeTail.then(() =&gt; {
+    const writer = proc.stdin.getWriter();        <span class="cmt">// 排到队首才取锁,不会撞</span>
+    return writer.write(encoded).finally(() =&gt; writer.releaseLock());
+  });
+  this.#writeTail = write.catch(() =&gt; undefined); <span class="cmt">// 一次写失败不坏整条链</span>
+  return write;
+}</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>#writeTail 链</b>:每个写挂在上一个写完成之后,串行执行;getWriter 只在队首调用,绝不和未释放的锁撞。</li>
+<li><b>失败不连坐</b>:某次写失败用 .catch 兜住,#writeTail 保持 resolved,后续写照常排队;真正错误经返回的 write 传给调用方。</li>
+</ul>
+<div class="callout ok"><b>结论(经对抗验证修正)</b>Ora 侧(长度前缀+8MB+分配前校验+半帧报错)sound;ACP 侧粘包/分包主轴 sound,但对抗审计揪出 3 处韧性/正确性缺陷(平衡截断误 resolve、handler 抛错杀读循环、并发写丢帧),<b>均已修</b>。</div>
+
+<h2 id="s-bridge">2.2 桥的六个零件(每个:为什么需要 → 代码 → 什么意思)</h2>
+<p>桥代码拆成六个文件,各管一摊。下面对每个零件讲:它解决什么问题、关键代码、逐点解释。</p>
+
+<h3>2.2.1 wire.ts — 和 ④ 的收发管道</h3>
+<div class="why"><b>为什么需要</b>桥要跟 ④(Claude Code 进程)用 ACP 通信:给 ④ 发指令、收 ④ 吐的字。需要一个专门管"拉起 ④ 进程、按行收发 JSON-RPC、④ 崩了把在飞请求判失败"的模块。它绝不碰 Ora 自己的 stdout(那是 ②↔③ 专用的)。</div>
+<div class="code"><div class="head">wire.ts · 请求与退出处理</div><pre><code>request(method, params) {
+  if (this.#exited) return Promise.reject(new AgentProcessExitedError(null,null));
+  const id = this.#nextId++;                      <span class="cmt">// 单调递增的请求 id</span>
+  return new Promise((resolve, reject) =&gt; {
+    this.#pending.set(id, { resolve, reject });    <span class="cmt">// 登记等回包</span>
+    this.#write(frameRequest(id, method, params)).catch(reject);
+  });
+}
+
+#handleExit(code, signal) {
+  if (this.#exited) return;
+  this.#exited = true;
+  for (const p of this.#pending.values())          <span class="cmt">// ④ 崩了:所有等回包的请求全判失败</span>
+    p.reject(new AgentProcessExitedError(code, signal));
+  this.#pending.clear();
+  this.#handlers.onExit(code, signal);
+}</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>request</b>:每发一条 ACP 请求就分配一个 id,登记到 #pending 等回包;返回 Promise,④ 回包时 resolve。</li>
+<li><b>#handleExit</b>:④ 一旦退出(崩了/正常退出),把所有还在等回包的请求统一 reject 成"agent 进程退出"错误,上层就能报成 agentProcessFailed。</li>
+<li><b>不碰 process.stdout</b>:④ 有自己的私有管道,它的输出不会漏到 ②↔③ 那根线上。</li>
+</ul>
+
+<h3>2.2.2 queue.ts — 有界缓冲队列</h3>
+<div class="why"><b>为什么需要</b>④ 吐字很快(一秒上万字),② 收得慢(还要写帧、走 HTTP、前端渲染)。中间没有缓冲,④ 会被自己的输出管道堵死(死锁)。需要一个有界队列当蓄水池,满了就丢最不重要的(半截字),保住重要的(工具调用/用量)。</div>
+<div class="code"><div class="head">queue.ts · push 的丢老保新策略</div><pre><code>push(item) {                       <span class="cmt">// 返回 true=持续溢出,该喊停</span>
+  if (this.#buffer.length &lt; this.#capacity) { this.#buffer.push(item); return false; }
+  const i = this.#buffer.findIndex(e =&gt; this.#isDroppable(e));   <span class="cmt">// 找最旧可丢的</span>
+  if (i !== -1) { this.#onDrop(this.#buffer.splice(i,1)[0], "evicted"); this.#buffer.push(item); return this.#bump(); }
+  this.#onDrop(item, "overflow"); return this.#bump();           <span class="cmt">// 全是边界事件 → 丢新来的</span>
+}
+pushTerminal(marker) { /* 终态标记无条件下发,绕过丢策略 */ }</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>丢老保新</b>:满了优先丢最旧的"可丢项"(中间的半截字 TextDelta),腾位子放新的。</li>
+<li><b>不丢边界事件</b>:工具调用、用量、终态这些不能丢;若缓冲里全是边界事件,宁丢新来的也不破坏已有。</li>
+<li><b>持续溢出喊停</b>:丢到一定次数返回 true,上层就主动取消这轮,不让 ④ 堵死。</li>
+<li><b>pushTerminal</b>:一轮结束的终态标记走专用通道,绝不被丢。</li>
+</ul>
+
+<h3>2.2.3 translate.ts — ACP↔Ora 事件翻译(纯函数)</h3>
+<div class="why"><b>为什么需要</b>④ 吐的是 ACP 的 session/update(一堆英文变体),Ora 认的是 AgentEvent(6 种)。要一张映射表把前者翻成后者;翻不了的(无关变体)显式丢弃并计数,不静默。</div>
+<div class="code"><div class="head">translate.ts · 关键映射表</div><pre><code>stopReasonToFinishReason:                       <span class="cmt">// ④ 的收尾原因 → Ora 的</span>
+  end_turn → completed
+  refusal   → completed  (+ 先发一个 Status{phase:"refusal"} 提示)
+  cancelled → cancelled
+  max_tokens / max_turn_requests → limit
+
+sessionUpdateToAgentEvents:                     <span class="cmt">// ④ 的事件 → Ora 的事件</span>
+  agent_message_chunk → TextDelta{channel:"assistant"}    <span class="cmt">// AI 说的字</span>
+  agent_thought_chunk  → TextDelta{channel:"reasoning"}   <span class="cmt">// AI 想的过程</span>
+  tool_call            → ToolCall{callId, name, summary}   <span class="cmt">// 调了工具</span>
+  tool_call_update     → ToolResult{callId, isError, summary} <span class="cmt">// 工具结果</span>
+  usage_update         → Usage{...}                       <span class="cmt">// token 用量</span>
+  user_message_chunk / plan / *_update → drop + 计数      <span class="cmt">// 翻不了的丢弃</span></code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>收尾映射</b>:④ 说"正常说完"→Ora 的 completed;"到上限"→limit;"被取消"→cancelled。refusal(拒绝)特殊:Ora 没专门字段,先补发一条 Status 提示再 completed。</li>
+<li><b>事件映射</b>:AI 的字→文本增量;调工具→工具调用;结果→工具结果;用量→用量事件。前端的字、工具卡片、用量都从这来。</li>
+<li><b>显式丢弃</b>:Ora 不关心的变体(user_message_chunk/plan 等)不静默吞,计数告警,方便排查。</li>
+</ul>
+
+<h3>2.2.4 client.ts — ACP 会话客户端(核心)</h3>
+<div class="why"><b>为什么需要</b>这是桥的大脑:开 ACP 会话、跑一轮、把 ④ 回吐路由到对的在飞轮次、处理权限请求、处理 ④ 崩溃。它把"一次对话调用"编成一个流式生成器,边收 ④ 的事件边往外 yield。</div>
+<div class="code"><div class="head">client.ts · initialize 广告 + 权限放行 + 一轮生成器</div><pre><code><span class="cmt">// 拉 ④ 时广告:文件/终端我都替不了,你自己干(ADR-0001)</span>
+await this.#wire.request("initialize", {
+  protocolVersion: 1,
+  clientCapabilities: { fs:{readTextFile:false,writeTextFile:false}, terminal:false },
+});
+
+<span class="cmt">// ④ 调工具前来问"行不行" → v1 自动放行</span>
+if (method === "session/request_permission") {
+  const chosen = options.find(o =&gt; o.kind==="allow_once") ?? options[0];
+  return wire.respond(id, { outcome:{outcome:"selected", optionId: chosen?.optionId ?? "allow_once"} });
+}
+
+<span class="cmt">// 一轮:发 session/prompt,响应落地时把终态标记经 pushTerminal 下发</span>
+async *runTurn(sessionId, blocks, signal) {
+  const queue = new BoundedEventQueue(...);
+  const done = this.#wire.request("session/prompt", { sessionId, prompt: blocks });
+  done.then(r =&gt; queue.pushTerminal({ __oraTurnEnd:true, stopReason:r.stopReason }),
+            e =&gt; { turnError = e; queue.close(); });
+  for (;;) {
+    const item = await queue.pull();
+    if (item === undefined) throw turnError ?? new AgentProcessExitedError(null,null);
+    if ("__oraTurnEnd" in item) { stopReason = item.stopReason; break; }
+    yield item;                                  <span class="cmt">// 流给 provider → runtime → ②</span>
+  }
+  return { stopReason };
+}</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>initialize 广告</b>:明确告诉 ④"我不替你读写文件/跑终端",所以 ④ 自己干 I/O;这样我们也就不会收到 fs/terminal 请求。</li>
+<li><b>权限放行</b>:④ 想调工具前会问,我们 v1 自动选 allow_once 放行,④ 自己执行(详见 2.3)。</li>
+<li><b>runTurn 生成器</b>:发 session/prompt 后,把响应落地时刻当成"这轮结束"信号,经队列下发终态标记;循环从队列拉事件 yield 出去,直到拉到终态标记。</li>
+<li><b>④ 崩溃</b>:队列被关、pull 返回 undefined → 抛 AgentProcessExitedError,上层报 agentProcessFailed。</li>
+</ul>
+
+<h3>2.2.5 provider.ts — Ora 眼里的 AgentProvider</h3>
+<div class="why"><b>为什么需要</b>Ora 不认识 ACP,只认"AgentProvider"这个接口(8 个方法)。桥要用这个接口把 ④ 包装起来,让 Ora 调"开始对话"时,桥去开 ACP 会话+跑 prompt,并把事件流回给 Ora。一个 provider 持一个 ④,跨会话复用。</div>
+<div class="code"><div class="head">provider.ts · startConversation(手动步进生成器)</div><pre><code>async *startConversation(call, request) {
+  const { cwd } = scopeToCwd(request.scope);
+  const sessionId = await client.newSession(cwd);     <span class="cmt">// 开 ACP 会话</span>
+  const conversationId = sessionId;                    <span class="cmt">// 直接当 Ora 的会话 id</span>
+  yield { kind:"conversationStarted", conversationId };
+
+  const gen = client.runTurn(sessionId, promptToAcpBlocks(request.prompt), call.signal);
+  let response;
+  for (;;) {                                  <span class="cmt">// 手动步进,而非 for await...of</span>
+    const step = await gen.next();
+    if (step.done) { response = step.value; break; }
+    yield step.value;                         <span class="cmt">// 每个事件转给 Ora</span>
+  }
+  if (response.stopReason === "refusal") yield refusalStatusEvent();
+  return { conversationId, finishReason: stopReasonToFinishReason(response.stopReason) };
+}</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>开新对话</b>:scope 里取工作目录 → 开 ACP 会话 → 会话 id 当 Ora 的 conversationId(一一对应)。</li>
+<li><b>手动步进</b>:用 gen.next() 一步步拉,边拉边 yield 给 Ora。为什么不用 for await...of?因为它会丢掉生成器的<b>返回值</b>(终态 PromptResponse),手动步进才能拿到。</li>
+<li><b>refusal 处理</b>:若 ④ 拒绝,先补发一条 Status 提示,再返回 completed。</li>
+<li><b>终态</b>:把 ④ 的 stopReason 翻成 Ora 的 finishReason 返回,这轮结束。</li>
+</ul>
+
+<h3>2.2.6 index.ts — 对外出口</h3>
+<div class="why"><b>为什么需要</b>插件作者只 import 一个入口,不该被内部六模块细节淹没。index 把要给作者用的东西汇总导出。</div>
+<div class="code"><div class="head">index.ts · 对外出口</div><pre><code>export { createAcpAgentProvider } from "./provider.js";
+export type { AcpAgentProviderOptions } from "./provider.js";
+export { AgentProcessExitedError } from "./wire.js";
+export type { AcpSpawnOptions } from "./wire.js";</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>createAcpAgentProvider</b>:作者唯一要调的函数——传入"拉起 ④ 的配置",拿到一个 AgentProvider。</li>
+<li>其余是类型/错误类的导出,供作者写类型标注和 catch 用。</li>
+</ul>
+
+<h2 id="s-perm">2.3 权限:agent 要动你文件时怎么办</h2>
+<p>Claude Code 干活时要读你的文件、改代码、跑命令。ACP 有两套相关机制,别混:</p>
+<table>
+<tr><th>机制</th><th>是什么</th><th>本方案怎么选</th></tr>
+<tr><td><b>fs / terminal(委托)</b></td><td>true=桥替 ④ 读写文件/跑终端</td><td class="no">关(false):④ 自己干 I/O</td></tr>
+<tr><td><b>request_permission(门禁)</b></td><td>④ 调工具<b>前</b>问"行不行"</td><td class="yes">v1 自动放行(allow_once)+日志</td></tr>
+</table>
+<div class="callout key"><b>放行 ≠ 看不见</b>自动放行只是"不卡 ④",但 ④ 调了什么工具,仍经 session/update → AgentEvent.toolCall 流到前端,你能看到工具卡片。未来 v2 要做成"真转前端审批",需要额外通道(本方案边界外)。</div>
+
+<h2 id="s-back">2.4 背压:agent 吐太快怎么办</h2>
+<p>见 2.2.2 queue。人话再讲一遍:④ 一秒吐上万字,② 来不及收,④ 会堵在自己输出管道上死锁。桥中间放个有界队列当蓄水池,满了丢最旧的半截字(不丢工具/用量/终态),持续堵就主动取消这轮。</p>
+
+<h2 id="s-use">2.5 怎么用(插件作者侧)</h2>
+<div class="why"><b>为什么这么写</b>作者要做的只有:声明这是 agent 插件,在"激活"里用桥把 Claude Code 包成 provider 返回。至于 startConversation——<b>不是作者调的</b>,是用户发消息时 ② 经 runtime 派过来的。</div>
+<div class="code"><div class="head">作者侧 · activate() 里装配桥</div><pre><code>import { defineAgentPlugin } from "@ora-space/plugin-sdk/agent";
+import { createAcpAgentProvider } from "@ora-space/plugin-sdk/acp";
+
+export default defineAgentPlugin({
+  kind: "agent", pluginApi: 1,
+  activate(context) {
+    const provider = createAcpAgentProvider({
+      id: "claude-code",                              <span class="cmt">// 这个 provider 的 id</span>
+      installationId: "claude-code",
+      displayName: "Claude Code",
+      spawn: {
+        program: "claude-agent-acp",                  <span class="cmt">// ④ 的可执行名</span>
+        env: { ANTHROPIC_API_KEY: readStoredKey(context.storagePath) },
+      },
+      logger: context.logger,
+    });
+    return { providers: [provider] };                <span class="cmt">// 激活返回 provider,到此"启动完"</span>
+  },
+});</code></pre></div>
+<ul class="explain">
+<li class="h">代码什么意思</li>
+<li><b>defineAgentPlugin</b>:声明这是个 agent 插件(kind:"agent")。</li>
+<li><b>activate</b>:Ora 启动插件时调;里面用桥把 Claude Code 包成 provider。</li>
+<li><b>spawn</b>:告诉桥怎么拉起 ④(程序名、API key 等环境变量)。</li>
+<li><b>return providers</b>:激活的产物就是 provider 列表;返回后"插件启动完"。聊天是之后用户发消息才触发的。</li>
+</ul>
+
+<h2 id="s-status">2.6 还没做 / 边界外</h2>
+<ul class="clean">
+<li><b>E2E 验证</b>:还需在本机起真实 claude-agent-acp,跑通 开会话→流式→取消→回收,覆盖崩溃/背压/半帧各分支。</li>
+<li><b>①↔② HTTP 接线</b>:应用层负责,不在本方案。</li>
+<li><b>① 前端渲染</b>:消费事件流,packages/chat 负责,不在本方案。</li>
+<li><b>v2 前端审批通道</b>:把 request_permission 真转前端,需额外通道,是 v2 的事。</li>
+<li><b>workbench 运行时</b>:v1 没有;未来 v2 给它自己的能力面,与本桥无关。</li>
+</ul>
+
+<div class="callout ok"><b>现状</b>三层(plugin-manager / plugin-protocol / plugin-runtime)+ 桥,在"接入本地 agent"这件事上代码已就绪并自洽;粘包/分包两条线都正确处理(本轮补了 ACP 行长上限)。剩余是 E2E 跑通 + 边界外的应用层接线。</div>
+
+</div>
+</body>
+</html>
