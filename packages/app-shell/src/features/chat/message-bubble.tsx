@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { OraMark } from "../../components/ora-mark";
 import { formatClock } from "../../lib/format";
 import { AnchorHighlight } from "./anchor-highlight";
+import { MarkdownMessage } from "./markdown-message";
 import type { ChatMessage } from "@ora/chat";
 
 interface MessageBubbleProps {
@@ -41,10 +42,10 @@ export function MessageBubble({ message, userName, embeddedAssistant = false }: 
         {isUser ? (
           <div className="relative w-fit max-w-full rounded-2xl rounded-br-md bg-secondary px-4 py-2.5">
             <AnchorHighlight />
-            <p className="relative whitespace-pre-wrap break-words text-[14px] leading-6 text-foreground">{message.content}</p>
+            <p data-selectable className="relative whitespace-pre-wrap break-words text-[14px] leading-6 text-foreground">{message.content}</p>
           </div>
         ) : (
-          <p className="whitespace-pre-wrap break-words text-[14px] leading-6 text-foreground">{message.content}</p>
+          <MarkdownMessage content={message.content} />
         )}
 
         <div className={`flex min-h-6 items-center gap-2 ${isUser ? "pr-1" : ""}`}>

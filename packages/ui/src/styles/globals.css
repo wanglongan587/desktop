@@ -48,6 +48,16 @@
   --animate-dot-column-top: dot-column-top 1.2s linear infinite;
   --animate-dot-column-middle: dot-column-middle 1.2s linear infinite;
   --animate-dot-column-bottom: dot-column-bottom 1.2s linear infinite;
+  --animate-preview-fade-in: preview-fade-in 220ms ease-out;
+}
+
+@keyframes preview-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /*
@@ -148,6 +158,7 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --code-background: color-mix(in oklch, var(--background), var(--foreground) 1%);
 }
 
 .dark {
@@ -182,6 +193,7 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+  --code-background: #1e1e1e;
 }
 
 @layer base {
@@ -190,8 +202,27 @@
   }
 
   body {
-    @apply bg-background text-foreground antialiased;
-    font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    @apply bg-background text-foreground;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", ui-sans-serif, sans-serif;
+    /* Desktop chrome should not drag-select; user and agent content opts in explicitly. */
+    -webkit-user-select: none;
+    user-select: none;
+  }
+
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable="false"]),
+  [data-selectable] {
+    -webkit-user-select: text;
+    user-select: text;
+  }
+
+  button,
+  [role="button"],
+  summary,
+  [data-selection-control] {
+    -webkit-user-select: none;
+    user-select: none;
   }
 
   button:not(:disabled),
@@ -209,4 +240,8 @@
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+.dark .markdown-code-block .shiki-token {
+  color: var(--shiki-dark) !important;
 }

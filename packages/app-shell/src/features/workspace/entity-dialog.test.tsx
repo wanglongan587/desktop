@@ -39,7 +39,12 @@ describe("EntityDialog path field", () => {
   it("passes the current path as a directory initial path and fills the selection", async () => {
     const user = userEvent.setup();
     const selectPath = vi.fn().mockResolvedValue("/home/ora/new");
-    renderDialog({ selectPath, worktreeStorage: { kind: "unsupported" } });
+    renderDialog({
+      selectPath,
+      worktreeStorage: { kind: "unsupported" },
+      windowControls: { kind: "none" },
+      locationActions: { kind: "unsupported" },
+    });
 
     await user.click(screen.getByRole("button", { name: /Browse|浏览/ }));
 
@@ -55,6 +60,8 @@ describe("EntityDialog path field", () => {
     renderDialog({
       selectPath: vi.fn().mockResolvedValue(null),
       worktreeStorage: { kind: "unsupported" },
+      windowControls: { kind: "none" },
+      locationActions: { kind: "unsupported" },
     });
 
     const pathInput = screen.getByLabelText("Path");

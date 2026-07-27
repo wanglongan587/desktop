@@ -3,7 +3,11 @@ import test from "node:test";
 
 import { createContractsClient } from "../src/client.js";
 import { endpoints } from "../src/endpoints.js";
-import type { ContractTransport, ContractTransportRequest } from "../src/transport.js";
+import type {
+  ContractCallOptions,
+  ContractTransport,
+  ContractTransportRequest,
+} from "../src/transport.js";
 
 /**
  * Builds a transport double that records requests and returns a fixed response.
@@ -19,6 +23,9 @@ function recordingTransport<TResponse>(
       requests.push(request);
 
       return response as unknown as TTransportResponse;
+    },
+    stream<TEvent>(): AsyncIterable<TEvent> {
+      throw new Error("stream was not expected in this test");
     },
   };
 }
@@ -139,6 +146,24 @@ test("omits absent optional query parameters", async () => {
   assert.deepEqual(requests[0]?.path, "/api/file-system/directory");
 });
 
+test("builds the agent model discovery request without a body", async () => {
+  const requests: ContractTransportRequest[] = [];
+  const client = createContractsClient(recordingTransport(requests, { groups: [] }));
+
+  await client.agentRuntime.listModels({});
+
+  assert.deepEqual(requests, [
+    {
+      operationName: "listAgentModels",
+      request: {},
+      method: "GET",
+      path: "/api/agent-models",
+      body: undefined,
+      headers: {},
+    },
+  ]);
+});
+
 test("uses a skill id in PUT paths while leaving editable fields in JSON", async () => {
   const requests: ContractTransportRequest[] = [];
   const client = createContractsClient(
@@ -201,4 +226,26 @@ test("omits standalone worktree operations from generated contracts", () => {
   assert.equal("listWorktrees" in client, false);
   assert.equal("updateWorktree" in client, false);
   assert.equal("deleteWorktree" in client, false);
+});
+
+test("forwards call options through every unary client operation", async () => {
+  const controller = new AbortController();
+  let observedSignal: AbortSignal | undefined;
+  const transport: ContractTransport = {
+    async send<TResponse>(
+      _request: ContractTransportRequest,
+      options?: ContractCallOptions,
+    ): Promise<TResponse> {
+      observedSignal = options?.signal;
+      return { projects: [] } as TResponse;
+    },
+    stream<TEvent>(): AsyncIterable<TEvent> {
+      throw new Error("stream was not expected in this test");
+    },
+  };
+  const client = createContractsClient(transport);
+
+  await client.project.list({}, { signal: controller.signal });
+
+  assert.equal(observedSignal, controller.signal);
 });

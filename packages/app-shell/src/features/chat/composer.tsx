@@ -1,20 +1,29 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import { IconArrowUp, IconCheck, IconChevronDown, IconPaperclip, IconSparkles, IconSquare, IconX } from "@tabler/icons-react";
-import {
-  Button,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-  Textarea,
-} from "@ora/ui";
+import { IconArrowUp, IconLoader2, IconPlayerStop, IconPlus } from "@tabler/icons-react";
+import { Button, Textarea } from "@ora/ui";
 import { useTranslation } from "react-i18next";
+import { ModelSelector } from "./model-selector";
+import { PermissionSelector } from "./permission-selector";
+import { WorkflowToggle } from "../workflow/workflow-toggle";
 
 interface ComposerProps {
   onSend: (text: string) => void;
-  onCancel?: () => void;
+  /**
+   * Invoked when Enter (or send) is pressed with an empty input. Used in Spec mode
+   * to run the highlighted stage directly; absent when there is nothing to launch.
+   */
+  onEmptySubmit?: () => void;
+  onStop?: () => void;
   isResponding: boolean;
+  /**
+   * True once the agent has produced visible output for the live turn. While the
+   * turn is still spinning up (session starting or awaiting the first token) this
+   * stays false, which is what splits the send button's stop affordance into a
+   * loading spinner and the actual stop icon. The click action is the same in
+   * both — only the glyph changes.
+   */
+  isStreaming?: boolean;
   disabled?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -27,34 +36,32 @@ interface ComposerProps {
  */
 export function Composer({
   onSend,
-  onCancel,
+  onEmptySubmit,
+  onStop,
   isResponding,
+  isStreaming = false,
   disabled = false,
   placeholder,
   autoFocus = false,
 }: ComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
-  const [mode, setMode] = useState<"agent" | "chat">("agent");
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const canSend = (value.trim().length > 0 || attachments.length > 0) && !isResponding && !disabled;
+  const hasText = value.trim().length > 0;
+  // With an empty input the send affordance still fires when there is a stage to
+  // launch, so pressing Enter runs the highlighted step.
+  const canSend = (hasText || onEmptySubmit !== undefined) && !isResponding && !disabled;
 
   const submit = () => {
+    if (isResponding || disabled) return;
     const text = value.trim();
-    if ((!text && attachments.length === 0) || isResponding || disabled) return;
-    const attachmentReferences = attachments.map((fileName) => `@${fileName}`).join(" ");
-    onSend([text, attachmentReferences].filter(Boolean).join("\n"));
+    if (!text) {
+      onEmptySubmit?.();
+      return;
+    }
+    onSend(text);
     setValue("");
-    setAttachments([]);
-  };
-
-  /** Adds unique file references without reading local file contents into the prototype. */
-  const addAttachments = (files: FileList | null) => {
-    if (!files) return;
-    setAttachments((current) => [...new Set([...current, ...Array.from(files, (file) => file.name)])]);
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -73,7 +80,7 @@ export function Composer({
   }, [value]);
 
   return (
-    <div data-slot="composer" className="flex flex-col rounded-xl border border-border/70 bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 hover:border-border hover:shadow-[0_3px_10px_rgba(0,0,0,0.07)] focus-within:border-foreground/25 focus-within:shadow-[0_3px_12px_rgba(0,0,0,0.08)] focus-within:ring-1 focus-within:ring-ring/35 dark:shadow-[0_1px_2px_rgba(0,0,0,0.2)] dark:hover:shadow-[0_3px_12px_rgba(0,0,0,0.24)]">
+    <div data-slot="composer" className="flex flex-col rounded-xl border border-border bg-card shadow-[0_1px_3px_rgba(0,0,0,0.06),0_8px_24px_rgba(0,0,0,0.04)] transition-[border-color,box-shadow] duration-200 hover:border-foreground/20 hover:shadow-[0_2px_4px_rgba(0,0,0,0.06),0_10px_28px_rgba(0,0,0,0.06)] focus-within:border-foreground/30 focus-within:shadow-[0_2px_4px_rgba(0,0,0,0.07),0_12px_32px_rgba(0,0,0,0.07)] focus-within:ring-2 focus-within:ring-ring/25 dark:shadow-[0_1px_3px_rgba(0,0,0,0.28),0_10px_28px_rgba(0,0,0,0.18)]">
       <div className="flex flex-col p-2">
         <Textarea
           ref={textAreaRef}
@@ -88,68 +95,32 @@ export function Composer({
           // fill would read as a grey block floating inside the card.
           className="min-h-14 max-h-[200px] resize-none rounded-none border-0 bg-transparent px-2 py-1 text-[15px] leading-6 shadow-none focus-visible:ring-0 disabled:bg-transparent"
         />
-        {attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 px-2 pb-1" aria-label={t("chat.attachments")}>
-            {attachments.map((fileName) => (
-              <span key={fileName} className="inline-flex h-7 max-w-52 items-center gap-1 rounded-md bg-muted px-2 text-xs text-muted-foreground">
-                <span className="truncate">{fileName}</span>
-                <button
-                  type="button"
-                  aria-label={t("chat.removeAttachment", { fileName })}
-                  onClick={() => setAttachments((current) => current.filter((candidate) => candidate !== fileName))}
-                  className="rounded-sm outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <IconX className="size-3" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
         <div className="flex min-h-8 items-center justify-between gap-2 pt-0.5">
-          <div className="flex min-w-0 items-center gap-0.5">
-            <input
-              ref={fileInputRef}
-              type="file"
-              multiple
-              className="sr-only"
-              tabIndex={-1}
-              onChange={(event) => {
-                addAttachments(event.target.files);
-                event.target.value = "";
-              }}
-            />
-            <Button type="button" variant="ghost" size="icon-sm" disabled={disabled} onClick={() => fileInputRef.current?.click()} aria-label={t("chat.attach")} className="rounded-full text-muted-foreground">
-              <IconPaperclip className="size-4" />
+          <div className="flex min-w-0 items-center gap-1">
+            {/* Placeholder affordance: the add button is intentionally inert for now. */}
+            <Button type="button" variant="ghost" size="icon-sm" disabled={disabled} aria-label={t("chat.add")} className="rounded-full text-muted-foreground">
+              <IconPlus className="size-4" />
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="sm" className="gap-1 px-2 text-xs font-normal text-muted-foreground" />}>
-                <IconSparkles className="size-3.5" />
-                {mode === "agent" ? t("chat.agentMode") : t("chat.chatMode")}
-                <IconChevronDown className="size-3" />
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="w-44">
-                <DropdownMenuItem onClick={() => setMode("agent")}><IconSparkles />{t("chat.agentMode")}{mode === "agent" && <IconCheck className="ml-auto" />}</DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setMode("chat")}><IconSparkles />{t("chat.chatMode")}{mode === "chat" && <IconCheck className="ml-auto" />}</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <PermissionSelector disabled={disabled} />
+            <WorkflowToggle disabled={disabled} />
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <p className="hidden text-[11px] text-muted-foreground lg:block">{t("chat.sendHint")}</p>
-            {isResponding ? (
-              <Button size="icon" aria-label={t("chat.stop")} onClick={onCancel} className="size-8 rounded-full">
-                <IconSquare className="size-3.5 fill-current" />
-              </Button>
-            ) : (
-              <Button
-                size="icon"
-                aria-label={t("chat.send")}
-                disabled={!canSend}
-                onClick={submit}
-                className="size-8 rounded-full disabled:bg-muted disabled:text-muted-foreground"
-              >
-                <IconArrowUp className="size-[18px]" />
-              </Button>
-            )}
+            <ModelSelector disabled={disabled} />
+            <Button
+              size="icon"
+              // A live turn always stops on click, whether it is still starting up
+              // (spinner) or already streaming (stop icon); only idle sends.
+              aria-label={isResponding ? (isStreaming ? t("common.stop") : t("chat.starting")) : t("chat.send")}
+              disabled={isResponding ? onStop === undefined : !canSend}
+              onClick={isResponding ? onStop : submit}
+              className="size-8 rounded-full bg-foreground text-background shadow-sm transition-[background-color,color,box-shadow] duration-200 hover:bg-foreground/85 hover:shadow-md disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none"
+            >
+              {isResponding
+                ? isStreaming
+                  ? <IconPlayerStop className="size-[18px]" />
+                  : <IconLoader2 className="size-[18px] animate-spin" />
+                : <IconArrowUp className="size-[18px]" />}
+            </Button>
           </div>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { createTauriTransport } from "./tauri-transport";
 describe("createTauriTransport", () => {
   it("maps supported operations and forwards the complete request", async () => {
     const invoke = vi.fn().mockResolvedValue({ projects: [] });
-    const transport = createTauriTransport(invoke);
+    const transport = createTauriTransport(invoke, () => ({ onmessage: () => undefined }));
     const request = {
       operationName: "listProjects",
       request: {},
@@ -19,9 +19,24 @@ describe("createTauriTransport", () => {
     expect(invoke).toHaveBeenCalledWith("list_projects", { request: {} });
   });
 
+  it("maps model discovery to the dedicated desktop command", async () => {
+    const invoke = vi.fn().mockResolvedValue({ groups: [] });
+    const transport = createTauriTransport(invoke);
+
+    await expect(transport.send({
+      operationName: "listAgentModels",
+      request: {},
+      method: "GET",
+      path: "/api/agent-models",
+      body: undefined,
+      headers: {},
+    })).resolves.toEqual({ groups: [] });
+    expect(invoke).toHaveBeenCalledWith("list_agent_models", { request: {} });
+  });
+
   it("rejects explicitly unsupported operations before invoking Rust", async () => {
     const invoke = vi.fn();
-    const transport = createTauriTransport(invoke);
+    const transport = createTauriTransport(invoke, () => ({ onmessage: () => undefined }));
 
     await expect(
       transport.send({
@@ -64,5 +79,72 @@ describe("createTauriTransport", () => {
         },
       });
     }
+  });
+
+  it("starts channel streams lazily and forwards ordered data until end", async () => {
+    const invoke = vi.fn().mockImplementation(async (command: string, args: Record<string, unknown>) => {
+      if (command === "stream_contract") {
+        const channel = args.onEvent as { onmessage: (frame: unknown) => void };
+        queueMicrotask(() => {
+          channel.onmessage({ type: "data", data: { value: 1 } });
+          channel.onmessage({ type: "end" });
+        });
+      }
+    });
+    const transport = createTauriTransport(
+      invoke,
+      () => ({ onmessage: () => undefined }),
+    );
+    const stream = transport.stream<{ value: number }>({
+      operationName: "loadSession",
+      request: { sessionId: "session-1" },
+      method: "POST",
+      path: "/api/sessions/session-1/load",
+      body: undefined,
+      headers: {},
+    });
+
+    expect(invoke).not.toHaveBeenCalled();
+    const events = [];
+    for await (const event of stream) events.push(event);
+
+    expect(events).toEqual([{ value: 1 }]);
+    expect(invoke).toHaveBeenCalledWith("stream_contract", expect.objectContaining({
+      operationName: "loadSession",
+      request: { sessionId: "session-1" },
+    }));
+    expect(invoke).toHaveBeenCalledWith("cancel_contract_stream", expect.any(Object));
+    expect(() => stream[Symbol.asyncIterator]()).toThrowError(
+      expect.objectContaining({ code: "stream_already_consumed" }),
+    );
+  });
+
+  it("fails a channel stream when its bounded consumer queue overflows", async () => {
+    const invoke = vi.fn().mockImplementation(async (command: string, args: Record<string, unknown>) => {
+      if (command === "stream_contract") {
+        const channel = args.onEvent as { onmessage: (frame: unknown) => void };
+        for (let index = 0; index < 257; index += 1) {
+          channel.onmessage({ type: "data", data: { index } });
+        }
+      }
+    });
+    const stream = createTauriTransport(
+      invoke,
+      () => ({ onmessage: () => undefined }),
+    ).stream({
+      operationName: "promptSession",
+      request: { sessionId: "session-1", text: "hello" },
+      method: "POST",
+      path: "/api/sessions/session-1/prompt",
+      body: { text: "hello" },
+      headers: { "content-type": "application/json" },
+    });
+
+    await expect(async () => {
+      for await (const event of stream) {
+        // The transport detects overflow before yielding buffered business events.
+        void event;
+      }
+    }).rejects.toMatchObject({ code: "stream_queue_overflow" });
   });
 });

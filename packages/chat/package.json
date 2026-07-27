@@ -9,7 +9,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "tsc -p tsconfig.json --noEmit && tsx --test tests/*.test.ts"
+    "test": "tsc -p tsconfig.json --noEmit && node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@ora/contracts": "workspace:*",

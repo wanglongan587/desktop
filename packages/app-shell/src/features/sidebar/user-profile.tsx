@@ -8,7 +8,7 @@ import {
   DropdownMenuTrigger,
 } from "@ora/ui";
 import { useTranslation } from "react-i18next";
-import { ColoredAvatar } from "../../components/colored-avatar";
+import { InitialsAvatar } from "../../components/initials-avatar";
 import type { CurrentUser } from "../../lib/types";
 
 interface UserProfileProps {
@@ -29,21 +29,25 @@ export function UserProfile({ user, compact = false, onOpenSettings, onSignOut }
   const accountLabel = t("account.label", { name: user.name });
   const trigger = compact ? (
     <Button variant="ghost" size="icon" aria-label={accountLabel} className="rounded-full">
-      <ColoredAvatar name={user.name} size="sm" />
+      <InitialsAvatar name={user.name} size="sm" />
     </Button>
   ) : (
     <Button
       variant="ghost"
       size="sm"
       aria-label={accountLabel}
-      className="h-auto w-full justify-start gap-2 px-1.5 py-1.5"
+      className="h-auto w-full justify-start gap-2.5 px-2 py-2"
     >
-      <ColoredAvatar name={user.name} size="sm" />
+      <InitialsAvatar name={user.name} size="default" />
       <span className="flex min-w-0 flex-1 flex-col text-left">
-        <span className="truncate text-sm font-semibold text-foreground">{user.name}</span>
-        <span className="truncate text-xs text-muted-foreground">{user.email}</span>
+        <span className="truncate text-[15px] font-semibold text-foreground">{user.name}</span>
+        {/* Always render the second row so the profile keeps its two-line layout even
+            when no email is configured; a non-breaking space preserves the line box. */}
+        <span className="truncate text-[13px] text-muted-foreground">
+          {user.email || " "}
+        </span>
       </span>
-      <IconChevronDown className="size-4 shrink-0 text-muted-foreground" />
+      <IconChevronDown className="size-[18px] shrink-0 text-muted-foreground" />
     </Button>
   );
 

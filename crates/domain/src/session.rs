@@ -1,39 +1,47 @@
 use crate::{AuditFields, DomainModelError, TaskId};
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Display, Formatter};
 
-/// Identifies which agent owns a persisted session while keeping string serialization stable.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct AgentId(String);
+/// Identifies the application-scoped CLI process that owns a provider session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AgentCli {
+    OpenCode,
+    Nga,
+    CodeAgentCli,
+}
 
-impl AgentId {
-    pub const TERMINAL: &'static str = "terminal";
+impl AgentCli {
+    pub const ALL: [Self; 3] = [Self::OpenCode, Self::Nga, Self::CodeAgentCli];
 
-    /// Creates an agent identifier from any owned or borrowed string input.
-    pub fn new(value: impl Into<String>) -> Self {
-        Self(value.into())
+    /// Returns the namespaced text persisted independently of enum declaration order.
+    pub fn database_value(self) -> &'static str {
+        match self {
+            Self::OpenCode => "ora-space.opencode",
+            Self::Nga => "ora-space.nga",
+            Self::CodeAgentCli => "ora-space.codeagentcli",
+        }
     }
 
-    /// Returns the canonical terminal agent identifier as a typed domain value.
-    pub fn terminal() -> Self {
-        Self::new(Self::TERMINAL)
+    /// Restores a CLI identity while rejecting unknown persisted namespaces.
+    pub fn from_database_value(value: &str) -> Result<Self, DomainModelError> {
+        match value {
+            "ora-space.opencode" => Ok(Self::OpenCode),
+            "ora-space.nga" => Ok(Self::Nga),
+            "ora-space.codeagentcli" => Ok(Self::CodeAgentCli),
+            _ => Err(DomainModelError::InvalidAgentCli(value.to_string())),
+        }
+    }
+
+    /// Returns the executable basename used by PATH lookup on Windows.
+    pub fn executable_name(self) -> &'static str {
+        match self {
+            Self::OpenCode => "opencode",
+            Self::Nga => "nga",
+            Self::CodeAgentCli => "codeagentcli",
+        }
     }
 }
 
-impl AsRef<str> for AgentId {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl Display for AgentId {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-/// Captures whether an agent session is currently running or stopped.
+/// Captures whether a conversation is registered on its shared CLI connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionStatus {
     Running,
@@ -59,42 +67,41 @@ impl SessionStatus {
     }
 }
 
-impl TryFrom<i64> for SessionStatus {
-    type Error = DomainModelError;
-
-    fn try_from(value: i64) -> Result<Self, Self::Error> {
-        Self::from_database_value(value)
-    }
-}
-
-/// Represents one historical run of an agent for a task.
+/// Represents one provider-backed conversation whose routing fields are immutable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Session {
     pub id: crate::SessionId,
     pub task_id: TaskId,
-    pub agent_id: AgentId,
-    pub agent_session_id: Option<String>,
+    pub agent_cli: AgentCli,
+    pub agent_session_id: String,
     pub status: SessionStatus,
     pub audit_fields: AuditFields,
 }
 
 impl Session {
-    /// Creates a session snapshot that keeps both the logical agent identity and any provider session id.
+    /// Creates a session only after the provider has returned its required session identifier.
     pub fn new(
         id: crate::SessionId,
         task_id: TaskId,
-        agent_id: AgentId,
-        agent_session_id: Option<String>,
+        agent_cli: AgentCli,
+        agent_session_id: impl Into<String>,
         status: SessionStatus,
         audit_fields: AuditFields,
     ) -> Self {
         Self {
             id,
             task_id,
-            agent_id,
-            agent_session_id,
+            agent_cli,
+            agent_session_id: agent_session_id.into(),
             status,
             audit_fields,
         }
+    }
+
+    /// Changes only registration state while preserving immutable provider routing.
+    pub fn with_status(mut self, status: SessionStatus, updated_at: i64) -> Self {
+        self.status = status;
+        self.audit_fields.updated_at = updated_at;
+        self
     }
 }

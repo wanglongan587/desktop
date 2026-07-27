@@ -46,13 +46,9 @@ export type ListProjectsResponse = { projects: Array<Project> };
 export type Project = { id: string; name: string; rootPath: string };
 
 /**
- * Carries the full replacement payload for project updates in the first slice.
+ * Carries the mutable project name while the repository root remains immutable.
  */
-export type UpdateProjectRequest = {
-  projectId: string;
-  name: string;
-  rootPath: string;
-};
+export type UpdateProjectRequest = { projectId: string; name: string };
 
 /**
  * Returns the updated project after a successful update request.

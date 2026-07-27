@@ -2,9 +2,8 @@ use crate::ApplicationError;
 use crate::project::mapper::map_project;
 use crate::project::ports::{Clock, ProjectIdGenerator, ProjectRepository};
 use ora_contracts::{
-    CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
-    GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse,
-    UpdateProjectRequest, UpdateProjectResponse,
+    CreateProjectRequest, CreateProjectResponse, GetProjectRequest, GetProjectResponse,
+    ListProjectsRequest, ListProjectsResponse, UpdateProjectRequest, UpdateProjectResponse,
 };
 use ora_domain::{AuditFields, Project as DomainProject, ProjectId};
 use ora_logging::{ora_error, ora_info};
@@ -162,7 +161,7 @@ where
     Repository: ProjectRepository,
     ClockSource: Clock,
 {
-    /// Replaces the public project fields while preserving persistence-managed audit state.
+    /// Renames a project while preserving its immutable repository root and audit identity.
     pub fn handle(
         &self,
         request: UpdateProjectRequest,
@@ -188,7 +187,7 @@ where
         let project = DomainProject::new(
             project_id.clone(),
             request.name,
-            request.root_path,
+            existing_project.root_path,
             AuditFields::new(
                 existing_project.audit_fields.created_at,
                 self.clock.now_timestamp_millis(),
@@ -206,54 +205,6 @@ where
         Ok(UpdateProjectResponse {
             project: map_project(project),
         })
-    }
-}
-
-/// Handles project deletion without exposing storage-specific soft-delete semantics.
-pub struct DeleteProjectHandler<Repository, ClockSource> {
-    repository: Repository,
-    clock: ClockSource,
-}
-
-impl<Repository, ClockSource> DeleteProjectHandler<Repository, ClockSource> {
-    pub fn new(repository: Repository, clock: ClockSource) -> Self {
-        Self { repository, clock }
-    }
-}
-
-impl<Repository, ClockSource> DeleteProjectHandler<Repository, ClockSource>
-where
-    Repository: ProjectRepository,
-    ClockSource: Clock,
-{
-    /// Deletes one project through a CRUD-shaped contract while letting storage soft-delete it.
-    pub fn handle(
-        &self,
-        request: DeleteProjectRequest,
-    ) -> Result<DeleteProjectResponse, ApplicationError> {
-        let project_id = ProjectId::new(request.project_id);
-        let deleted = self
-            .repository
-            .soft_delete_project(&project_id, self.clock.now_timestamp_millis())
-            .map_err(|error| {
-                let error = ApplicationError::from_project_repository_error(error);
-                log_project_failure("delete_project", Some(&project_id), &error);
-                error
-            })?;
-
-        if deleted {
-            log_project_success("delete_project", Some(&project_id));
-
-            Ok(DeleteProjectResponse {
-                project_id: project_id.to_string(),
-            })
-        } else {
-            let error = ApplicationError::ProjectNotFound {
-                project_id: project_id.to_string(),
-            };
-            log_project_failure("delete_project", Some(&project_id), &error);
-            Err(error)
-        }
     }
 }
 

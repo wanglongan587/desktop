@@ -97,3 +97,70 @@ test("normalizes structured server errors from fetch responses", async () => {
     },
   ]);
 });
+
+test("starts NDJSON streams lazily, decodes split frames, and enforces single consumption", async () => {
+  let fetchCalls = 0;
+  const encoder = new TextEncoder();
+  const transport = createFetchTransport({
+    fetch: async () => {
+      fetchCalls += 1;
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode('{"type":"data","data":{"value":'));
+          controller.enqueue(encoder.encode('1}}\n{"type":"end"}\n'));
+          controller.close();
+        },
+      }), { status: 200 });
+    },
+  });
+  const request: ContractTransportRequest = {
+    operationName: "loadSession",
+    request: { sessionId: "session-1" },
+    method: "POST",
+    path: "/api/sessions/session-1/load",
+    body: undefined,
+    headers: {},
+  };
+  const stream = transport.stream<{ value: number }>(request);
+
+  assert.equal(fetchCalls, 0);
+  const received: Array<{ value: number }> = [];
+  for await (const event of stream) received.push(event);
+  assert.deepEqual(received, [{ value: 1 }]);
+  assert.equal(fetchCalls, 1);
+  assert.throws(
+    () => stream[Symbol.asyncIterator](),
+    (error: unknown) => error instanceof ContractTransportError && error.code === "stream_already_consumed",
+  );
+});
+
+test("surfaces a typed stream error frame and aborts the underlying fetch lifecycle", async () => {
+  let observedSignal: AbortSignal | undefined;
+  const transport = createFetchTransport({
+    fetch: async (_input, init) => {
+      observedSignal = init?.signal as AbortSignal;
+      return new Response(
+        '{"type":"error","error":{"code":"session_busy","message":"busy"}}\n',
+        { status: 200 },
+      );
+    },
+  });
+  const stream = transport.stream({
+    operationName: "promptSession",
+    request: { sessionId: "session-1", text: "hello" },
+    method: "POST",
+    path: "/api/sessions/session-1/prompt",
+    body: { text: "hello" },
+    headers: { "content-type": "application/json" },
+  });
+
+  await assert.rejects(
+    async () => {
+      for await (const _event of stream) {
+        assert.fail("error-only stream must not yield data");
+      }
+    },
+    (error: unknown) => error instanceof ContractTransportError && error.code === "session_busy",
+  );
+  assert.equal(observedSignal?.aborted, true);
+});

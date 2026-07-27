@@ -1,12 +1,11 @@
 use crate::{
-    ApplicationError, Clock, CreateProjectHandler, DeleteProjectHandler, GetProjectHandler,
-    ListProjectsHandler, ProjectIdGenerator, ProjectRepository, ProjectRepositoryError,
-    UpdateProjectHandler,
+    ApplicationError, Clock, CreateProjectHandler, GetProjectHandler, ListProjectsHandler,
+    ProjectIdGenerator, ProjectRepository, ProjectRepositoryError, UpdateProjectHandler,
 };
 use ora_contracts::{
-    CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
-    GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse,
-    Project as ContractProject, UpdateProjectRequest, UpdateProjectResponse,
+    CreateProjectRequest, CreateProjectResponse, GetProjectRequest, GetProjectResponse,
+    ListProjectsRequest, ListProjectsResponse, Project as ContractProject, UpdateProjectRequest,
+    UpdateProjectResponse,
 };
 use ora_domain::{AuditFields, Project, ProjectId};
 use ora_logging::{with_recorded_trace_logging, with_trace_logging};
@@ -151,7 +150,6 @@ fn updates_projects_with_refreshed_timestamps() {
         let response = match handler.handle(UpdateProjectRequest {
             project_id: "project-1".to_string(),
             name: "Ora Updated".to_string(),
-            root_path: "/workspace/ora-next".to_string(),
         }) {
             Ok(response) => response,
             Err(error) => panic!("update handler failed: {error}"),
@@ -163,7 +161,7 @@ fn updates_projects_with_refreshed_timestamps() {
                 project: ContractProject {
                     id: "project-1".to_string(),
                     name: "Ora Updated".to_string(),
-                    root_path: "/workspace/ora-next".to_string(),
+                    root_path: "/workspace/ora".to_string(),
                 },
             }
         );
@@ -172,46 +170,8 @@ fn updates_projects_with_refreshed_timestamps() {
             vec![Project::new(
                 ProjectId::new("project-1"),
                 "Ora Updated",
-                "/workspace/ora-next",
-                AuditFields::new(10, 30, false),
-            )]
-        );
-    });
-}
-
-/// Verifies delete handlers keep the external CRUD contract while soft-deleting storage state.
-#[test]
-fn deletes_projects_through_soft_delete_repository_calls() {
-    with_trace_logging(|| {
-        let repository = Rc::new(FakeProjectRepository::with_projects(vec![Project::new(
-            ProjectId::new("project-1"),
-            "Ora",
-            "/workspace/ora",
-            AuditFields::new(10, 20, false),
-        )]));
-        let handler = DeleteProjectHandler::new(repository.clone(), FixedClock::new(40));
-
-        let response = match handler.handle(DeleteProjectRequest {
-            project_id: "project-1".to_string(),
-        }) {
-            Ok(response) => response,
-            Err(error) => panic!("delete handler failed: {error}"),
-        };
-
-        assert_eq!(
-            response,
-            DeleteProjectResponse {
-                project_id: "project-1".to_string(),
-            }
-        );
-        assert_eq!(repository.visible_projects(), Vec::<Project>::new());
-        assert_eq!(
-            repository.all_projects(),
-            vec![Project::new(
-                ProjectId::new("project-1"),
-                "Ora",
                 "/workspace/ora",
-                AuditFields::new(10, 40, true),
+                AuditFields::new(10, 30, false),
             )]
         );
     });
@@ -351,11 +311,6 @@ impl FakeProjectRepository {
             .filter(|project| !project.audit_fields.is_deleted)
             .cloned()
             .collect()
-    }
-
-    /// Returns all stored projects, including soft-deleted rows, for state assertions.
-    fn all_projects(&self) -> Vec<Project> {
-        self.projects.borrow().clone()
     }
 
     /// Returns a queued error when a test wants to simulate repository failure.

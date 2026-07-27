@@ -25,16 +25,11 @@ describe("useSettingsStore", () => {
   });
 
   it("merges a partial patch into settings", () => {
-    useSettingsStore.getState().updateSettings({
-      theme: "dark",
-      model: "claude-sonnet-4.5",
-      historyRetention: "30-days",
-    });
+    useSettingsStore.getState().updateSettings({ theme: "dark", model: "opencode/big-pickle" });
     expect(useSettingsStore.getState().settings).toEqual({
       ...DEFAULT_SETTINGS,
       theme: "dark",
-      model: "claude-sonnet-4.5",
-      historyRetention: "30-days",
+      model: "opencode/big-pickle",
     });
   });
 
@@ -45,11 +40,11 @@ describe("useSettingsStore", () => {
   });
 
   it("persists settings to localStorage under the v1 key", () => {
-    useSettingsStore.getState().updateSettings({ provider: "anthropic" });
+    useSettingsStore.getState().updateSettings({ agentCli: "nga" });
     const raw = window.localStorage.getItem(STORAGE_KEY);
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!) as { state: { settings: SettingsPreferences } };
-    expect(parsed.state.settings.provider).toBe("anthropic");
+    expect(parsed.state.settings.agentCli).toBe("nga");
   });
 
   it("merges persisted partial settings over defaults via the merge strategy", () => {

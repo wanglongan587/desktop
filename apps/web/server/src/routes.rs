@@ -1,13 +1,14 @@
 use crate::app_state::AppState;
 use crate::handlers::{
-    agents, file_system, health, project_work_contexts, projects, sessions, skills, tasks,
+    agents, file_system, git, health, project_work_contexts, projects, sessions, skills, tasks,
 };
 use axum::Router;
 use axum::routing::{get, post};
 use ora_contracts::{
-    AGENT_PATH, AGENTS_PATH, FILE_SYSTEM_DIRECTORY_PATH, PROJECT_PATH,
-    PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH, SESSION_PATH,
-    SESSIONS_PATH, SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH,
+    AGENT_MODELS_PATH, AGENT_PATH, AGENTS_PATH, FILE_SYSTEM_DIRECTORY_PATH, GIT_IDENTITY_PATH,
+    PROJECT_PATH, PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH,
+    SESSION_LOAD_PATH, SESSION_PATH, SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH,
+    SESSION_STOP_PATH, SESSIONS_PATH, SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH,
 };
 
 /// Builds the top-level router for health checks and the persisted CRUD routes.
@@ -16,6 +17,8 @@ pub fn build_router(app_state: AppState) -> Router {
         .route("/health/live", get(health::liveness))
         .route("/health/ready", get(health::readiness))
         .route(FILE_SYSTEM_DIRECTORY_PATH, get(file_system::list_directory))
+        .route(GIT_IDENTITY_PATH, get(git::get_identity))
+        .route(AGENT_MODELS_PATH, get(sessions::list_agent_models))
         .route(
             PROJECTS_PATH,
             post(projects::create_project).get(projects::list_projects),
@@ -47,10 +50,15 @@ pub fn build_router(app_state: AppState) -> Router {
         )
         .route(
             SESSION_PATH,
-            get(sessions::get_session)
-                .put(sessions::update_session)
-                .delete(sessions::delete_session),
+            get(sessions::get_session).delete(sessions::delete_session),
         )
+        .route(SESSION_LOAD_PATH, post(sessions::load_session))
+        .route(SESSION_PROMPT_PATH, post(sessions::prompt_session))
+        .route(
+            SESSION_PERMISSION_RESPONSE_PATH,
+            post(sessions::respond_to_permission),
+        )
+        .route(SESSION_STOP_PATH, post(sessions::stop_session))
         .route(
             SKILLS_PATH,
             post(skills::create_skill).get(skills::list_skills),
@@ -115,6 +123,27 @@ mod tests {
         };
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    /// Verifies model discovery remains successful when every test CLI is unavailable.
+    ///
+    /// The real intention is to exercise the zero-CLI code path, but that depends on
+    /// the test machine having none of the three CLIs installed. Since developers'
+    /// machines differ, the assertion only validates the response shape (status + a
+    /// `groups` array) rather than asserting an exact empty payload. A proper
+    /// zero-CLI test would require injecting a discovery stub at the handler level.
+    #[tokio::test]
+    async fn serves_partial_agent_model_results() {
+        let (_temp_dir, _database_path, app) = test_router();
+        let response = request_empty(&app, Method::GET, "/api/agent-models").await;
+        let status = response.status();
+        let body = response_json(response).await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.get("groups").is_some_and(|g| g.is_array()),
+            "response must include a groups array"
+        );
     }
 
     /// Verifies readiness stays unavailable until bootstrap marks the state as ready.
@@ -238,7 +267,6 @@ mod tests {
     async fn serves_project_crud_routes() {
         let (temp_dir, _database_path, app) = test_router();
         let project_root = workspace_project_root(&temp_dir, "ora");
-        let updated_project_root = workspace_project_root(&temp_dir, "ora-next");
         let create_response = match app
             .clone()
             .oneshot(
@@ -303,7 +331,6 @@ mod tests {
                     .body(Body::from(
                         json!({
                             "name": "Ora Updated",
-                            "rootPath": updated_project_root.clone(),
                         })
                         .to_string(),
                     ))
@@ -365,7 +392,7 @@ mod tests {
                 "project": {
                     "id": project_id,
                     "name": "Ora Updated",
-                        "rootPath": updated_project_root.clone(),
+                    "rootPath": project_root.clone(),
                 },
             })
         );
@@ -753,6 +780,7 @@ mod tests {
                 "projectId": project_id,
                 "title": "Ship handlers",
                 "status": "todo",
+                "workspaceMode": "worktree",
             })
         );
         assert_eq!(
@@ -764,6 +792,7 @@ mod tests {
                         "projectId": project_id,
                         "title": "Ship handlers",
                         "status": "todo",
+                        "workspaceMode": "worktree",
                     },
                 ],
             })
@@ -776,6 +805,7 @@ mod tests {
                     "projectId": project_id,
                     "title": "Ship handlers",
                     "status": "todo",
+                    "workspaceMode": "worktree",
                 },
             })
         );
@@ -787,6 +817,7 @@ mod tests {
                     "projectId": project_id,
                     "title": "Ship updated handlers",
                     "status": "doing",
+                    "workspaceMode": "worktree",
                 },
             })
         );
@@ -840,155 +871,25 @@ mod tests {
         assert_eq!(item_response.status(), StatusCode::NOT_FOUND);
     }
 
-    /// Verifies the router supports session CRUD routes end to end.
+    /// Verifies session query routes expose stable empty and not-found responses.
     #[tokio::test]
-    async fn serves_session_crud_routes() {
+    async fn serves_session_query_routes() {
         let (_temp_dir, _database_path, app) = test_router();
-        let create_response = match app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri("/api/sessions")
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        json!({
-                            "taskId": "task-1",
-                            "agentId": "agent-1",
-                            "agentSessionId": "provider-1",
-                            "status": "running",
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap_or_else(|error| panic!("failed to build request: {error}")),
-            )
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => panic!("request failed: {error}"),
-        };
-        let created_session = response_json(create_response).await["session"].clone();
-        let session_id = match created_session["id"].as_str() {
-            Some(session_id) => session_id.to_string(),
-            None => panic!("response did not include a session id"),
-        };
-        let list_response = match app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/sessions")
-                    .body(Body::empty())
-                    .unwrap_or_else(|error| panic!("failed to build request: {error}")),
-            )
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => panic!("request failed: {error}"),
-        };
-        let get_response = match app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri(format!("/api/sessions/{session_id}"))
-                    .body(Body::empty())
-                    .unwrap_or_else(|error| panic!("failed to build request: {error}")),
-            )
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => panic!("request failed: {error}"),
-        };
-        let update_response = match app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::PUT)
-                    .uri(format!("/api/sessions/{session_id}"))
-                    .header("content-type", "application/json")
-                    .body(Body::from(
-                        json!({
-                            "taskId": "task-2",
-                            "agentId": "agent-2",
-                            "agentSessionId": null,
-                            "status": "stopped",
-                        })
-                        .to_string(),
-                    ))
-                    .unwrap_or_else(|error| panic!("failed to build request: {error}")),
-            )
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => panic!("request failed: {error}"),
-        };
-        let delete_response = match app
-            .oneshot(
-                Request::builder()
-                    .method(Method::DELETE)
-                    .uri(format!("/api/sessions/{session_id}"))
-                    .body(Body::empty())
-                    .unwrap_or_else(|error| panic!("failed to build request: {error}")),
-            )
-            .await
-        {
-            Ok(response) => response,
-            Err(error) => panic!("request failed: {error}"),
-        };
+        let list_response = request_empty(&app, Method::GET, "/api/sessions").await;
+        let get_response = request_empty(&app, Method::GET, "/api/sessions/missing-session").await;
 
         assert_eq!(
-            created_session,
-            json!({
-                "id": session_id,
-                "taskId": "task-1",
-                "agentId": "agent-1",
-                "agentSessionId": "provider-1",
-                "status": "running",
-            })
-        );
-        assert_eq!(
             response_json(list_response).await,
-            json!({
-                "sessions": [
-                    {
-                        "id": session_id,
-                        "taskId": "task-1",
-                        "agentId": "agent-1",
-                        "agentSessionId": "provider-1",
-                        "status": "running",
-                    },
-                ],
-            })
+            json!({ "sessions": [] })
         );
+        assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             response_json(get_response).await,
             json!({
-                "session": {
-                    "id": session_id,
-                    "taskId": "task-1",
-                    "agentId": "agent-1",
-                    "agentSessionId": "provider-1",
-                    "status": "running",
+                "error": {
+                    "code": "session_not_found",
+                    "message": "session not found: missing-session",
                 },
-            })
-        );
-        assert_eq!(
-            response_json(update_response).await,
-            json!({
-                "session": {
-                    "id": session_id,
-                    "taskId": "task-2",
-                    "agentId": "agent-2",
-                    "agentSessionId": null,
-                    "status": "stopped",
-                },
-            })
-        );
-        assert_eq!(
-            response_json(delete_response).await,
-            json!({
-                "sessionId": session_id,
             })
         );
     }

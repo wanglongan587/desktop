@@ -2,6 +2,7 @@
 members = [
     "apps/web/server",
     "crates/application",
+    "crates/acp",
     "crates/backend",
     "crates/contracts",
     "crates/db",
@@ -26,6 +27,7 @@ edition = "2024"
 [workspace.dependencies]
 # Internal
 ora-application = { path = "crates/application" }
+ora-acp = { path = "crates/acp" }
 ora-backend = { path = "crates/backend" }
 ora-contracts = { path = "crates/contracts" }
 ora-db = { path = "crates/db" }
@@ -36,7 +38,10 @@ ora-process = { path = "crates/process" }
 ora-pty = { path = "crates/pty" }
 
 # External
+chrono = "0.4"
+chrono-tz = "0.10"
 derive_more = "2"
+futures-util = { version = "0.3", features = ["sink"] }
 libc = "0.2"
 log = "0.4"
 portable-pty = "0.9"
