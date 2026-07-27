@@ -30,6 +30,9 @@ packages/contracts/.test-dist/
 *.tsbuildinfo
 **/.test-dist
 
+# Local tool caches
+/.codegraph/
+
 # Plugin runtime prepare outputs
 /.cache/plugin-runtime/
 /.cache/plugin-sdk-pack-tests/

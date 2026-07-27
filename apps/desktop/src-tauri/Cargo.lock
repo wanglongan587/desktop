@@ -2591,7 +2591,8 @@ dependencies = [
 name = "ora-process"
 version = "0.0.0"
 dependencies = [
- "libc",
+ "getrandom 0.3.4",
+ "thiserror 2.0.18",
  "tokio",
  "windows-sys 0.61.2",
 ]
