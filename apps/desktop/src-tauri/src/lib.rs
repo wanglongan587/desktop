@@ -11,10 +11,12 @@ use ora_logging::{
     FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, RotationPolicy, init_logging, ora_info,
     ora_warn, register_gitlancer_logger,
 };
+use ora_plugin_runtime::PluginRuntimeManager;
+use ora_process::TokioProcessSpawner;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 /// Starts the Tauri application with the persisted shared Backend and command adapters.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -62,6 +64,17 @@ pub fn run() {
             commands::set_worktree_root,
             commands::resolve_task_cwd,
             commands::open_location,
+            commands::scan_plugins,
+            commands::install_plugin,
+            commands::list_plugins,
+            commands::enable_plugin,
+            commands::disable_plugin,
+            commands::uninstall_plugin,
+            commands::plugin_activate,
+            commands::plugin_deactivate,
+            commands::plugin_agent_new_session,
+            commands::plugin_agent_prompt,
+            commands::plugin_agent_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -114,13 +127,20 @@ fn bootstrap_desktop(
             .path()
             .home_dir()
             .map_err(DesktopBootstrapError::AppDataDirectory)?,
+        plugins_root: std::env::var("ORA_PLUGINS_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| app_data_directory.join("plugins")),
     })?;
+
+    let plugin_runtime = Arc::new(PluginRuntimeManager::new(TokioProcessSpawner::new()));
+    spawn_session_update_forwarder(plugin_runtime.clone(), app.handle().clone());
 
     Ok((
         DesktopState {
             backend,
             config,
             stream_cancellations: Arc::new(Mutex::new(HashMap::new())),
+            plugin_runtime,
         },
         DesktopRuntimeGuard { _logging: logging },
     ))
@@ -168,6 +188,19 @@ fn resolve_system_timezone(system_timezone: Result<String, String>) -> ResolvedD
             warning: Some(DesktopTimezoneWarning::SystemRead { error }),
         },
     }
+}
+
+/// Forwards plugin `agent/sessionUpdate` notifications from the runtime broadcast to the frontend.
+fn spawn_session_update_forwarder(
+    manager: Arc<PluginRuntimeManager<TokioProcessSpawner>>,
+    app_handle: tauri::AppHandle,
+) {
+    let mut receiver = manager.subscribe();
+    tauri::async_runtime::spawn(async move {
+        while let Ok(notification) = receiver.recv().await {
+            let _ = app_handle.emit("agent/sessionUpdate", notification);
+        }
+    });
 }
 
 /// Builds the Desktop logging topology rooted in the stable system application directory.

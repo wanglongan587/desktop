@@ -45,6 +45,7 @@ fn bootstraps_empty_database_with_default_catalog() {
             "agents".to_string(),
             "artifacts".to_string(),
             "migrations".to_string(),
+            "plugins".to_string(),
             "project_work_contexts".to_string(),
             "projects".to_string(),
             "sessions".to_string(),
@@ -61,6 +62,7 @@ fn bootstraps_empty_database_with_default_catalog() {
             AppliedMigration::new("0001", 1_700_000_000_000),
             AppliedMigration::new("0002", 1_700_000_000_000),
             AppliedMigration::new("0003", 1_700_000_000_000),
+            AppliedMigration::new("0004", 1_700_000_000_000),
         ]
     );
 }
@@ -71,7 +73,7 @@ fn manages_skill_and_agent_definition_schema_lifecycle() {
     let temp_dir = TempDir::new().unwrap();
     let database_path = temp_dir.path().join("skill-agent.sqlite3");
     let catalog = default_migration_catalog().unwrap();
-    let migrations = ["0001", "0002", "0003"].map(|version| {
+    let migrations = ["0001", "0002", "0003", "0004"].map(|version| {
         catalog
             .migration(version)
             .cloned()

@@ -43,3 +43,4 @@ define_id!(
     AgentDefinitionId,
     "Identifies a persisted configurable agent definition."
 );
+define_id!(PluginId, "Identifies a persisted plugin.");

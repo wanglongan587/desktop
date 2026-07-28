@@ -23,5 +23,11 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+    // Vite's file watcher must not recurse into the Rust build output under src-tauri/target:
+    // the concurrent `cargo run` writes .dll/.pdb artifacts there, and watching locked files
+    // throws EBUSY on Windows, crashing the dev server mid-build.
+    watch: {
+      ignored: ["**/src-tauri/target/**"],
+    },
   },
 })

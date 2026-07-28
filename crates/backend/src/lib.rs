@@ -4,6 +4,7 @@ mod bootstrap;
 mod clock;
 mod error;
 mod identity;
+mod plugin;
 mod project;
 mod session;
 mod skill;

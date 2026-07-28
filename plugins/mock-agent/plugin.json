@@ -1,0 +1,11 @@
+{
+  "id": "mock-agent",
+  "version": "0.1.0",
+  "kind": "agent",
+  "entrypoint": {
+    "program": "tsx",
+    "args": ["src/adapter.ts"]
+  },
+  "displayName": "Mock Agent",
+  "description": "A canned reference agent plugin for validating the Ora plugin runtime end-to-end without a real agent binary."
+}

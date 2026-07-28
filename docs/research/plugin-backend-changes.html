@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>插件管理后端改动说明</title>
+<style>
+
+/* fallback css if no file */
+:root{--c-bg:#fafafa;--c-text:#1a1a2e;--c-text-2:#444;--c-text-3:#666;--c-primary:#2563eb;--c-primary-light:#dbeafe;--c-border:#e2e8f0;--c-code-bg:#f1f5f9;--c-code-text:#c7254e;--c-quote-border:#93c5fd;--c-quote-bg:#eff6ff;--c-table-head:#f8fafc;--c-table-stripe:#f8fafc;--sidebar-w:260px;--content-max:920px;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--c-bg);color:var(--c-text);line-height:1.75;font-size:15px;}
+.page{display:flex;max-width:calc(var(--sidebar-w) + var(--content-max) + 64px);margin:0 auto;}
+.sidebar{width:var(--sidebar-w);position:sticky;top:0;height:100vh;overflow-y:auto;padding:32px 20px;flex-shrink:0;border-right:1px solid var(--c-border);background:#fff;}
+.content{flex:1;max-width:var(--content-max);padding:48px 48px 80px;min-width:0;}
+h1{font-size:28px;font-weight:700;margin-bottom:8px;}
+h2{font-size:22px;font-weight:700;margin-top:48px;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid var(--c-border);}
+h3{font-size:18px;font-weight:600;margin-top:32px;margin-bottom:12px;color:var(--c-primary);}
+h4{font-size:15px;font-weight:600;margin-top:24px;margin-bottom:8px;}
+p{margin-bottom:12px;color:var(--c-text-2);}
+ul,ol{margin-bottom:12px;padding-left:24px;}
+li{margin-bottom:6px;color:var(--c-text-2);}
+code{font-family:Consolas,monospace;font-size:13px;background:var(--c-code-bg);color:var(--c-code-text);padding:2px 6px;border-radius:4px;}
+pre{background:#1e293b;color:#e2e8f0;border-radius:8px;padding:16px 20px;overflow-x:auto;margin-bottom:16px;font-size:13px;}
+pre code{background:none;color:inherit;padding:0;}
+blockquote{border-left:4px solid var(--c-quote-border);background:var(--c-quote-bg);padding:12px 20px;margin-bottom:16px;border-radius:0 8px 8px 0;}
+table{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:14px;}
+th{background:var(--c-table-head);text-align:left;padding:10px 16px;border-bottom:2px solid var(--c-border);font-weight:600;}
+td{padding:10px 16px;border-bottom:1px solid var(--c-border);}
+tr:nth-child(even){background:var(--c-table-stripe);}
+strong{font-weight:600;color:var(--c-text);}
+hr{border:none;border-top:1px solid var(--c-border);margin:32px 0;}
+@media(max-width:900px){.sidebar{display:none;}.content{padding:24px;}}
+@media print{.sidebar{display:none;}.content{max-width:100%;padding:0;}}
+</style>
+</head>
+<body>
+<div class="page">
+<main class="content">
+<h1></h1></p>
+
+<blockquote><p></p></blockquote></p>
+
+<hr></p>
+
+<h2></h2></p>
+
+<p>在这个分支上，我从零搭建了一套<strong></strong>，并跑通了"启用 agent 插件、agent 插件经 ACP 协议与 agent 对话"的端到端闭环。</p>
+
+<p>具体做了这些事：</p>
+
+<ol><li><strong></strong>——在 Rust 的 contracts 层加了一套插件类型（插件种类、清单、入口点、生命周期状态、增删改查请求响应），同时自动生成对应的 TypeScript 类型供前端使用。</li><li><strong></strong>——在 domain 层定义了插件实体和生命周期状态机；在 db 层加了一张 <code></code> 表和对应的 SQLite 仓储实现，插件记录能存能取。</li><li><strong></strong>——在 application 层加了扫描、安装、列表、启用、禁用、卸载六个操作，每个操作走依赖注入的 handler 模式，可单测。</li><li><strong></strong>——在 backend 层加了 <code></code>，把上面六个操作组合起来，通过 <code></code> 统一暴露给 Tauri 命令和 Web 路由。</li><li><strong></strong>——它负责真正运行插件进程：拉起插件子进程、通过 <code></code> 二进制帧做 JSON-RPC 通信、完成插件通道握手、把 ACP 会话更新通知路由到广播通道。</li><li><strong></strong>——把原来只有 <code></code>/<code></code> 的玩具脚手架，重写成一个真正的双向 JSON-RPC 插件作者 SDK（能收请求、发响应、发通知），使用同一套二进制帧格式。</li><li><strong></strong>——<code></code>（canned 数据，用于验证管道）和 <code></code>（真实连接 opencode 的 ACP 模式）。</li><li><strong></strong>——注册了插件管理命令和 agent 操作命令，把插件运行时的会话更新通知经 Tauri 事件推给前端。</li><li><strong></strong>——Windows 下 Rust 标准库找不到 <code></code> 脚本（tsx/pnpm），在 host 侧自动用 <code></code> 包装。</li><li><strong></strong>——从换行分隔改为 <code></code>，帧层通用（读/写任何 type）、分派层只处理 type=1（JSON），后续加 type=2（文件等）只需改一个 if 分支。</li></ol>
+最终验证结果：用 mock-agent 真实进程跑通了端到端集成测试；opencode 的 ACP 线格式经探针验证；在 Desktop 上跑通了 opencode 经 ACP 的真实对话。</p>
+
+<hr></p>
+
+<h2></h2></p>
+
+<h3></h3></p>
+
+<p>原来的"插件管理"只是一个写死的常量 <code></code> 加一张 agent 定义表（<code></code>，只有 id/name/description，没有启动规格）。ACP 传输是空壳（<code></code>，每个方法都抛错）。Rust 侧没有任何 plugin 概念。</p>
+
+<p>也就是说：<strong></strong>，但底层的契约和原语（ACP 数据模型、进程 spawn 原语）已经就绪。</p>
+
+<h3></h3></p>
+
+<p>经过一轮设计拷问，确定了以下关键决策（详见 <code></code>）：</p>
+
+<ul><li><strong></strong>：插件带代码、自己持有 ACP（不是纯数据声明）。理由：opencode 是外部二进制，我们不为它写代码；但插件带代码给了灵活性（未来非 ACP agent 也能接入）。</li><li><strong></strong>：不是进程内加载（WASM 难 spawn 子进程、原生库无隔离），而是子进程（语言无关、强隔离、和 ACP 自身模型一致）。</li><li><strong></strong>：manifest 有 <code></code> 枚举（agent/ui/workbench），每种 kind 一个 <code></code> trait 实现。加一种插件类型 = 扩枚举 + 加 runtime，不改 manifest 形状。</li><li><strong></strong>：host 和插件之间的通道用 <code></code> 方法名（不复用 ACP 的 <code></code>），payload 类型共享。这样插件通道契约不和 ACP 线格式耦合。</li><li><strong></strong>：manifest 是跨 kind 的可安装单元；AgentDefinition 是 agent kind 激活后派生的运行态对象，供 chat 域引用。</li><li><strong></strong>：Discovered → Installed → Enabled → Started → Activated，用枚举 + 流转方法，让非法状态不可表示。</li></ul>
+<h3></h3></p>
+
+<ul><li>OpenAI codex CLI <strong></strong>支持 ACP。</li><li>opencode (sst/opencode) <strong></strong> ACP——命令 <code></code>，JSON-RPC over stdio，功能与终端一致。</li></ul>
+所以 agent 用 opencode（有 ACP），codex（无 ACP）不用。opencode 插件是薄代理（Ora 的 agent 通道 ↔ opencode 的 ACP，payload 共享，只做方法名映射 + 转发通知）。</p>
+
+<hr></p>
+
+<h2></h2></p>
+
+<h3></h3></p>
+
+<ul><li>分支 <code></code>，基于 <code></code>（与 main 的 merge-base）。</li><li>分支上 main 之外有约 20 个既有提交（chat 锚点导航、workspace 树动画等，非本文档范围）。</li><li>本文记录的改动<strong></strong>（工作区状态），叠在那些既有提交之上。</li></ul>
+<h3></h3></p>
+
+<p>这一层只管"插件记录的存取和状态流转"，不涉及运行时（拉进程、通信）。它完全镜像了仓库既有的 agent_definition 全栈范式（domain 实体 → db 迁移/仓储 → application handler → backend facade）。</p>
+
+<h4></h4></p>
+
+<p>定义了以下类型，全部通过 ts-rs 自动生成 <code></code>：</p>
+
+<ul><li><code></code> 枚举（<code></code>/<code></code>/<code></code>），后两者预留、暂无 runtime。</li><li><code></code>：插件进程的 spawn 配置（program/args/cwd/envs），是 <code></code> 的可序列化投影。host 读它来拉起插件进程。</li><li><code></code>：跨 kind 的可安装单元描述符（id/version/kind/entrypoint/displayName/description）。既是磁盘上的 <code></code> 格式，也是前端的 DTO。</li><li><code></code> 枚举：生命周期状态（Discovered/Installed/Enabled/Started/Activated），镜像 domain 的 <code></code>。</li><li><code></code>：受管视图（manifest 字段 + state + sourcePath），给管理界面用。</li><li><code></code>：扫描发现的（manifest + sourcePath），安装请求用。</li><li><code></code>/<code></code>：插件通道握手 DTO。</li><li>六组 CRUD 请求/响应（Scan/Install/List/Enable/Disable/Uninstall）。</li><li><code></code> 常量模块：插件通道的方法名字符串（<code></code>/<code></code>/<code></code>/<code></code>/<code></code>/<code></code>），agent 方法复用 ACP payload 类型但用 <code></code> 方法名。</li></ul>
+在 <code></code> 加了 <code></code> + <code></code> + <code></code> 里调 <code></code>。</p>
+
+<blockquote><p></p></blockquote></p>
+
+<h4></h4></p>
+
+<ul><li><code></code> 枚举（镜像 contracts 的，但 domain 独立于 contracts），带 <code></code>/<code></code>（i64 映射，和 <code></code> 一致）。</li><li><code></code> 枚举（Discovered/Installed/Enabled/Started/Activated），带 <code></code>/<code></code> + <code></code> 状态机（枚举 + <code></code> 实现，只允许合法流转）。</li><li><code></code> 实体（id/kind/version/entrypoint[序列化 JSON 字符串]/displayName/description/state/sourcePath/auditFields）。<code></code> 存为不透明字符串——domain 层不解释 spawn 配置，运行时反序列化。</li><li><code></code> newtype（在 <code></code> 用 <code></code> 宏）。</li><li><code></code> 加了 <code></code>/<code></code>/<code></code>/<code></code> 变体。</li></ul>
+<blockquote><p></p></blockquote></p>
+
+<h4></h4></p>
+
+<ul><li><code></code>（新建，version "0004"）：建 <code></code> 表（id/kind[INTEGER]/version/entrypoint[TEXT]/display_name/description/state[INTEGER]/source_path/created_at/updated_at/is_deleted，共 11 列）。在 <code></code> 的 <code></code> 注册。</li><li><code></code>（新建，仿 <code></code>）：<code></code> 实现 <code></code> trait（create/find/list/update_state/soft_delete）。entrypoint 用 <code></code> 存 TEXT，kind/state 用 i64。在 <code></code> + <code></code> 导出。</li><li><code></code>：更新了两个既有测试的断言（加了 plugins 表 + 0004 迁移到表名列表和迁移版本数组）。</li></ul>
+<blockquote><p></p></blockquote></p>
+
+<h4></h4></p>
+
+<ul><li><code></code>：<code></code> trait（create/find/list/update_state/soft_delete）、<code></code> trait（扫本地目录→DiscoveredPlugin 清单）、<code></code>/<code></code>。注意：<strong></strong> <code></code>——插件 id 来自 manifest（manifest 的 <code></code> 字段是权威的，不生成）。</li><li><code></code>：六个 handler，每个的泛型参数不同：<code></code>（只需 Scanner）、<code></code>、<code></code>（只需 Repository）、<code></code>、<code></code>、<code></code>。全部静态分发。enable/disable 走 <code></code> 状态机校验。一个私有 <code></code> helper 复用。</li><li><code></code>：<code></code>（domain→contracts Plugin，反序列化 entrypoint JSON）+ <code></code>（contracts DiscoveredPlugin→domain Plugin，序列化 entrypoint）+ kind/state 枚举互转。</li><li><code></code>：集成测试（scan→install→enable[幂等]→disable→uninstall→NotFound 全流程）用 FakePluginRepository + FakePluginScanner + FixedClock。</li><li><code></code>：加了 <code></code>/<code></code>/<code></code>/<code></code>/<code></code> 变体 + <code></code> 转换。</li><li><code></code>：加了 <code></code> + <code></code> 依赖（mapper 用）。</li></ul>
+<h4></h4></p>
+
+<ul><li><code></code>：只管元数据 CRUD，持各 handler，<strong></strong>（运行时在 plugin-runtime crate）。构造函数 <code></code>，内部建 <code></code> + <code></code>（从 application 导出）。</li><li><code></code>：<code></code> 加 <code></code> 字段；<code></code> 加 <code></code> 字段；<code></code> 调 <code></code> + 构造 <code></code>。</li><li>六个 Backend 方法（scan_plugins/install_plugin/...）薄包装 handler。</li><li><code></code>：<code></code> 映射为 <code></code>（注：初版用了静态消息吞掉动态 sqlite 错误，debug 时改成透出真实 message 以排查 live 问题）。</li><li><code></code> 在 4 处构造点提供：Tauri/Web 用 <code></code> 环境变量覆盖（dev 指向 repo 的 plugins/），否则 app-data/plugins；2 个 backend 测试用 tempdir。</li></ul>
+<h3></h3></p>
+
+<p>这是运行时核心——把插件进程拉起来、和它做 JSON-RPC 通信、把 ACP 会话通知路由出去。依赖 <code></code>（进程 spawn 原语）、<code></code>（ACP 类型 + 插件方法常量）、tokio、tokio-util。</p>
+
+<h4></h4></p>
+
+<p>通信格式：<code></code>。5 字节帧头 + length 字节 payload。</p>
+
+<ul><li><code></code>：持有插件进程的 stdin（写）+ 一个后台 stdout 读取任务（读）。request 用自增 id 关联 oneshot channel 等响应；notification（<code></code>）路由到 <code></code>。</li><li><code></code>：手动写字节（<code></code>），不用 Rust struct → 无 padding（5 字节，不是 8 字节）→ 无对齐 UB。</li><li><code></code>：序列化 JSON → <code></code> → <code></code> → 等 oneshot → 反序列化 result。</li><li><code></code>：返回 <code></code>，供 adapter 转发到 Tauri 事件。</li><li>reader 任务：<code></code> → <code></code> 解析 length → <code></code> → <code></code> 解析 JSON → 路由（有 id 给 pending caller，无 id 按 method 分派）。type≠1 帧读到后丢弃（未来改 1 个 if 分支即可分派）。<code></code> 自动处理分包（读不满就等）和粘包（多帧在缓冲区里逐帧读）。</li><li>MAX_PAYLOAD_SIZE = 16MB 防 corrupt 帧。</li><li>单元测试：用 <code></code> 模拟插件进程，验证二进制帧 initialize 请求/响应 id 关联。</li></ul>
+<h4></h4></p>
+
+<ul><li><code></code>：泛型（静态分发，测试可注 fake spawner）。持 <code></code> + <code></code>。</li><li><code></code>：用 <code></code> 构造 <code></code> → <code></code> → <code></code> → 建 <code></code> → 发 <code></code> 握手 → 缓存 handle。这是"Started"状态。</li><li><code></code>：转发到对应 channel 的 <code></code>，payload 是 ACP 类型。</li><li><code></code>：kill 进程 + 移除 handle。</li><li><code></code>：暴露广播。</li><li><code></code>：从 manifest entrypoint 构造 <code></code>，cwd 默认为插件 source_path（让 manifest 用相对路径 args）。<strong></strong>（std::process::Command 找不到 .cmd shim）。</li><li>端到端集成测试（<code></code>）：spawn 真实 mock-agent（经 pnpm），驱动 activate→newSession→prompt（收 2 条 sessionUpdate）→cancel→deactivate，全通过。</li></ul>
+<h4></h4></p>
+
+<code></code>（NotActive/AlreadyActive/Spawn/Channel/PluginError）+ <code></code>/<code></code> helper。</p>
+
+<h3></h3></p>
+
+<p>把 <code></code>/<code></code> 玩具重写成双向 JSON-RPC 插件作者 SDK。</p>
+
+<ul><li><code></code>：JSON-RPC 2.0 信封类型（Request/SuccessResponse/Error/Notification/Inbound）+ <code></code> 常量（镜像 Rust 的 <code></code>）+ <code></code> 常量（JSON=1）+ <code></code> 接口。</li><li><code></code>：<code></code> 累积 stdin Buffer → ≥5 字节解析帧头（<code></code> + <code></code>）→ ≥5+length 字节提取 payload → yield → 消费已读字节（处理分包/粘包）。<code></code> 返回 <code></code>。<code></code> = readFrame → type=1 → JSON.parse（servePlugin 透明，非 type=1 帧跳过）。<code></code>/<code></code> 已导出为通用帧 API。</li><li><code></code>：<code></code> — <code></code> + <code></code> + <code></code> + <code></code> 写 stdout。<code></code> = <code></code>。<code></code>/<code></code>/<code></code> 走 <code></code>。</li><li><code></code>：<code></code> 调度循环——读消息、分派 request 给 handler、handler 可经 <code></code> 回调推通知、handler 报错转 error response、未知方法回 -32601。</li><li><code></code>：导出 + import console-guard（stdout 保护，console 输出转 stderr）。</li><li>删了 getNums/returnNums/旧 protocol.ts/旧 host/index.ts + 三个旧测试（getNums.test.ts、returnNums.test.ts、console-guard.test.ts，后两者因用 bun:test 导入而随重写删除）。package.json 原来无测试脚本 + devDeps 只有 <code></code>；重写后加了 <code></code> + <code></code> + <code></code> 脚本。tsconfig 的 <code></code> 从 <code></code> 改为 <code></code>。5 个测试（writer 3 + server 2）通过。</li></ul>
+<h3></h3></p>
+
+<h4></h4></p>
+
+<ul><li><code></code>：kind=agent，entrypoint <code></code>。</li><li><code></code>：用重写后的 plugin-sdk 的 <code></code>，实现 initialize/agent/newSession/agent/prompt（吐 2 条 <code></code> sessionUpdate + 返回 <code></code>）/agent/cancel/shutdown。canned 数据。</li><li>验证：真实进程跑通——喂 initialize/newSession/prompt，输出 5 行正确协议（2 条 notification 正确交错在 prompt 响应前）。</li></ul>
+<h4></h4></p>
+
+<ul><li><code></code>：kind=agent，entrypoint <code></code>。</li><li><code></code>：<code></code> 类——<code></code>（shell:true 解决 Windows .cmd），ACP JSON-RPC 客户端（initialize/session/new/session/prompt 流 session/update/session/cancel）。id 关联 + session/update 路由到 prompt 的 onUpdate 回调。</li><li><code></code>：<code></code> 桥接 host plugin 通道（<code></code>）↔ opencode ACP（<code></code>）。host <code></code> 时懒 spawn opencode + ACP initialize。payload 共享，只做方法名映射 + <code></code>→<code></code> 转发。</li><li>探针验证（<code></code>）：喂 ACP <code></code>（protocolVersion=1, clientCapabilities={}）→ opencode 回 <code></code>（protocolVersion=1, agentCapabilities, authMethods[opencode-login], agentInfo v1.18.4）。两个假设全部验证通过。</li><li><code></code>：opencode 声明 auth 但调 <code></code> 回 "Invalid params"——opencode 已 <code></code> 配置了凭证，故跳过 ACP authenticate 调用（依赖 opencode 自身凭证）。</li></ul>
+<h3></h3></p>
+
+<ul><li><code></code>：<code></code> 加 <code></code>。</li><li><code></code>：<code></code> 构造 manager + spawn 一个 task 把 broadcast 的 <code></code> 逐条 <code></code>；<code></code> 加 <code></code>（<code></code> env 覆盖）。</li><li><code></code>：用 <code></code> 宏加 6 个 CRUD 命令（scan_plugins/install_plugin/list_plugins/enable_plugin/disable_plugin/uninstall_plugin）；手写 <code></code>/<code></code>/<code></code>/<code></code>/<code></code>（需 <code></code>/<code></code>）。</li><li><code></code>：加 <code></code>。</li><li><code></code>：注册全部新命令。</li><li><code></code>：加 <code></code> + <code></code> 依赖（src-tauri 独立 Cargo workspace，相对路径）。</li></ul>
+<h3></h3></p>
+
+<ul><li><code></code>：术语表（Host/Plugin/Agent/ACP/Plugin Channel/Plugin SDK/Plugin Manifest/Agent Definition + 状态 Enabled/Started/Activated）。</li><li><code></code>：架构决策记录（模型 B + out-of-process + kind-first + 通用契约），含 4 个被否方案。</li><li><code></code>：差距分析报告（本轮前的研究产出）。</li><li><code></code>：加了 superseded 标注（第一份调研的"传输位置"方案被 ADR-0001 取代）。</li><li>验证：全量 Rust workspace 测试 + clippy + desktop src-tauri clippy + plugin-sdk 5 测试 + desktop web 8 测试 + app-shell 90 测试 + plugin-runtime 端到端集成测试（<code></code>）+ mock-agent 真实进程验证 + opencode ACP 探针验证 + <strong></strong>。</li></ul>
+<h3></h3></p>
+
+<p>仓库的迁移用 <code></code>——如果表已存在，这条语句是空操作，<strong></strong>。</p>
+
+<p>实际情况：schema_v0001 从第一个提交 <code></code> 起<strong></strong> <code></code>（git log 确认只有一个提交，未改过）。但用户的旧数据库的 sessions 表是在迁移系统引入之前创建的（缺 agent_id），之后迁移系统跑 <code></code> 是空操作（表已存在），所以 agent_id 列一直补不上。</p>
+
+<p>所以：
+<ul><li>fresh DB：schema_v0001（含 agent_id）+ v0002/v0003/v0004 全应用，正常。</li><li>stale DB（迁移系统之前创建的）：sessions 表缺 agent_id，<code></code> 不补列，需删库重建。</li></ul>
+我自己的 schema_v0004 也有类似问题：初版建表语句漏了 <code></code>/<code></code> 列（domain Plugin 有这俩字段、repository INSERT/SELECT 用了，但建表语句没写），导致 fresh DB 的 plugins 表缺这两列 → <code></code> 错误。已修 schema_v0004（补 display_name/description + kind 改 INTEGER），删库重建后正常。</p>
+
+<p>这个 <code></code> 不补列的行为导致 live 调试时删了两次库（一次删 stale sessions 库、一次删 buggy v0004 库）。</p>
+
+<h3></h3></p>
+
+<p>Rust 的 <code></code> 在 Windows 下找不到 <code></code>（.cmd 脚本需要 cmd.exe 解析 PATHEXT）。这个问题影响：
+<ul><li>plugin-runtime 的 <code></code>：manifest 用 <code></code> → host spawn 失败。修法：Windows 下裸名自动包 <code></code>。</li><li>opencode 的 AcpStdioClient 的 <code></code>：node 的 spawn 同理。修法：<code></code>。</li><li>集成测试用 <code></code> spawn mock-agent：也走 <code></code>（build_process_spec 包装）。</li><li><code></code>：加了 <code></code>——Vite 的文件监视器递归扫项目根（含 <code></code>），并发 <code></code> 写 .dll 时锁冲突（EBUSY）导致 vite 崩。排除后不再冲突。</li></ul>
+<h3></h3></p>
+
+<p>插件通道（host ↔ plugin 之间）的通信帧格式：<code></code>。</p>
+
+<strong></strong>：type 1 字节（payload 内容选择器，当前 1=JSON，预留 2=file 等）+ length 4 字节（payload 字节数，不含帧头，大端序）。总帧大小 = 5 + length。</p>
+
+<strong></strong>：
+<ul><li>换行分隔（<code></code>）的问题：payload 含 <code></code> 会断帧；长度前缀是二进制安全的（payload 可含任意字节）。</li><li>业界模式（gRPC 的 <code></code>、WebSocket 的 opcode 分派）：帧层按 type 分派，应用层只看到类型化消息。</li></ul>
+<strong></strong>：不用 <code></code>（默认 8 字节，i8 后 3 字节 padding）；也不用 <code></code>（5 字节但有引用 UB 风险）。改用手动写字节（<code></code> → 正好 5 字节，无 padding，无对齐 UB）。</p>
+
+<strong></strong>：
+<ul><li><code></code>/<code></code> 是通用的——读/写任何 type 的帧，不硬编码 type=1。</li><li><code></code>/<code></code> 是 type=1 专用——读 type=1 帧 JSON.parse 返回给 servePlugin；写 type=1 帧。</li><li>type≠1 帧当前读到后丢弃。后续加 type=2（文件等）= 把 <code></code> 改成 <code></code>，改 1 个 if 分支，~25 行，不改帧层。</li></ul>
+<strong></strong>：Rust 侧 <code></code> 自动处理（读不满 5 字节/length 字节就等，读多了逐帧读）；TS 侧 <code></code> 累积 Buffer → ≥5 字节解析头 → ≥5+length 字节提取 payload → 消费已读字节保留余量（处理粘包：一帧读完缓冲区里还有下一帧的数据）。</p>
+
+<hr></p>
+
+<h2></h2></p>
+
+<h3></h3></p>
+
+<ul><li><code></code></li><li><code></code></li><li><code></code></li><li><code></code></li><li><code></code></li><li><code></code></li><li><code></code>（Cargo.toml + src/{lib,channel,manager,error}.rs）</li><li><code></code>（package.json + plugin.json + src/adapter.ts）</li><li><code></code>（package.json + plugin.json + tsconfig.json + src/{acp-stdio-client,adapter}.ts）</li><li><code></code>（codegen 生成）</li><li><code></code>、<code></code></li></ul>
+<h3></h3></p>
+
+<ul><li><code></code>（加 plugin 模块导出 + codegen 调用）</li><li><code></code></li><li><code></code></li><li><code></code> + <code></code></li><li><code></code></li><li><code></code> + <code></code></li><li><code></code>（plugins_root + ApplicationError→HTTP 映射）</li><li><code></code>（重写：protocol/reader/writer/server/index + 删 getNums/returnNums/旧测试 + package.json 加 vitest 脚本/tsconfig types 改 node）</li><li><code></code>（加 plugin 导出）</li><li><code></code>（加 plugins/*）</li><li><code></code>（加 plugin-runtime 到 members + workspace deps）</li></ul>
+<hr></p>
+
+<h2></h2></p>
+
+<table>
+<tr><td>验证项</td><td>结果</td></tr>
+<tr><td>Rust workspace 全量测试</td><td>通过</td></tr>
+<tr><th>Rust clippy（workspace + desktop src-tauri）</th><th>净</th></tr>
+<tr><th>plugin-sdk vitest（5 测试）</th><th>通过</th></tr>
+<tr><th>desktop web vitest（8 测试）</th><th>通过</th></tr>
+<tr><th>app-shell vitest（90 测试）</th><th>通过</th></tr>
+<tr><th>plugin-runtime 通道单测（duplex + 二进制帧）</th><th>通过</th></tr>
+<tr><th>plugin-runtime 端到端集成测试（<code></code>，真实 mock-agent + 二进制帧）</th><th>通过</th></tr>
+<tr><th>mock-agent 真实进程（二进制帧 initialize/newSession/prompt）</th><th>5 帧正确协议（2 notification + 3 response）</th></tr>
+<tr><th>opencode ACP 探针（喂 initialize）</th><th>protocolVersion=1 + clientCapabilities={} 验证通过</th></tr>
+<tr><th>Desktop live（ORA_PLUGINS_ROOT + opencode auth login + pnpm tauri dev）</th><th>create_session 成功 + update_session 流转，对话跑通</th></tr>
+</table>
+
+</main>
+</div>
+</body>
+</html>

@@ -1,0 +1,11 @@
+{
+  "id": "opencode",
+  "version": "0.1.0",
+  "kind": "agent",
+  "entrypoint": {
+    "program": "tsx",
+    "args": ["src/adapter.ts"]
+  },
+  "displayName": "OpenCode",
+  "description": "Bridges Ora to the opencode agent over ACP by running `opencode acp` as an ACP-compatible subprocess."
+}

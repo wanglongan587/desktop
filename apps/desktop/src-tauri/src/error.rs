@@ -1,5 +1,6 @@
 use crate::config::DesktopConfigError;
 use ora_backend::{BackendBootstrapError, BackendError};
+use ora_plugin_runtime::PluginRuntimeError;
 use serde::Serialize;
 use thiserror::Error;
 
@@ -46,6 +47,35 @@ impl From<BackendError> for CommandError {
     /// Preserves the shared backend error contract across the Tauri IPC boundary.
     fn from(error: BackendError) -> Self {
         Self::new(error.code(), error.message())
+    }
+}
+
+impl From<PluginRuntimeError> for CommandError {
+    /// Maps live plugin-runtime failures into stable frontend-visible codes.
+    fn from(error: PluginRuntimeError) -> Self {
+        let (code, message) = match error {
+            PluginRuntimeError::NotActive { plugin_id } => (
+                "plugin_not_active",
+                format!("plugin is not active: {plugin_id}"),
+            ),
+            PluginRuntimeError::AlreadyActive { plugin_id } => (
+                "plugin_already_active",
+                format!("plugin is already active: {plugin_id}"),
+            ),
+            PluginRuntimeError::Spawn { message } => (
+                "plugin_spawn_error",
+                format!("failed to spawn plugin process: {message}"),
+            ),
+            PluginRuntimeError::Channel { message } => (
+                "plugin_channel_error",
+                format!("plugin channel transport error: {message}"),
+            ),
+            PluginRuntimeError::PluginError { message } => (
+                "plugin_error",
+                format!("plugin returned an error response: {message}"),
+            ),
+        };
+        Self::new(code, message)
     }
 }
 

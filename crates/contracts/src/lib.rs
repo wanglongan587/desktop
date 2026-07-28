@@ -4,6 +4,7 @@ mod agent;
 mod file_system;
 mod frontend;
 mod git;
+mod plugin;
 mod project;
 mod project_work_context;
 mod session;
@@ -28,6 +29,14 @@ pub use frontend::{
     SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH, frontend_endpoints,
 };
 pub use git::{GetGitIdentityRequest, GitIdentityResponse};
+pub use plugin::plugin_methods;
+pub use plugin::{
+    DisablePluginRequest, DisablePluginResponse, DiscoveredPlugin, EnablePluginRequest,
+    EnablePluginResponse, InitializeRequest, InitializeResponse, InstallPluginRequest,
+    InstallPluginResponse, ListPluginsRequest, ListPluginsResponse, Plugin, PluginKind,
+    PluginManifest, PluginProcessEntrypoint, PluginState, ScanPluginsRequest, ScanPluginsResponse,
+    UninstallPluginRequest, UninstallPluginResponse,
+};
 pub use project::{
     CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
     GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse, Project,
@@ -71,6 +80,7 @@ pub fn export_typescript_bindings_to(
     agent::export(&config)?;
     file_system::export(&config)?;
     git::export(&config)?;
+    plugin::export(&config)?;
     project::export(&config)?;
     project_work_context::export(&config)?;
     session::export(&config)?;

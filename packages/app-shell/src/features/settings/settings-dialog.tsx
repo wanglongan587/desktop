@@ -51,7 +51,6 @@ import { useChatStore } from "../../chat-store-context";
 import { useStore } from "zustand";
 import type {
   ApprovalPolicy,
-  HistoryRetention,
   InterfaceDensity,
   HistoryRetention,
   ThemeMode,

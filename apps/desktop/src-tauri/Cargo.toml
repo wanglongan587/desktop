@@ -27,6 +27,8 @@ tauri-plugin-dialog = "2"
 ora-backend = { path = "../../../crates/backend" }
 ora-contracts = { path = "../../../crates/contracts" }
 ora-logging = { path = "../../../crates/logging" }
+ora-plugin-runtime = { path = "../../../crates/plugin-runtime" }
+ora-process = { path = "../../../crates/process" }
 tempfile = "3"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "sync"] }

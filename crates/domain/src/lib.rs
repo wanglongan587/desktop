@@ -3,6 +3,7 @@ mod artifact;
 mod audit_fields;
 mod error;
 mod ids;
+mod plugin;
 mod project;
 mod project_work_context;
 mod session;
@@ -20,9 +21,10 @@ pub use artifact::Artifact;
 pub use audit_fields::AuditFields;
 pub use error::DomainModelError;
 pub use ids::{
-    AgentDefinitionId, ArtifactId, ProjectId, ProjectWorkContextId, SessionId, SkillId, TaskId,
-    VirtualEntryId, VirtualFolderId, WorktreeId,
+    AgentDefinitionId, ArtifactId, PluginId, ProjectId, ProjectWorkContextId, SessionId, SkillId,
+    TaskId, VirtualEntryId, VirtualFolderId, WorktreeId,
 };
+pub use plugin::{Plugin, PluginKind, PluginLifecycleState};
 pub use project::Project;
 pub use project_work_context::{ProjectWorkContext, ProjectWorkContextSurface};
 pub use session::{AgentCli, Session, SessionStatus};

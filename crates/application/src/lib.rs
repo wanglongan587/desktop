@@ -1,5 +1,6 @@
 mod agent_definition;
 mod error;
+mod plugin;
 mod project;
 mod project_work_context;
 mod session;
@@ -14,6 +15,11 @@ pub use agent_definition::{
     ListAgentDefinitionsHandler, UpdateAgentDefinitionHandler, UuidAgentDefinitionIdGenerator,
 };
 pub use error::ApplicationError;
+pub use plugin::{
+    DisablePluginHandler, EnablePluginHandler, InstallPluginHandler, ListPluginsHandler,
+    LocalDirPluginScanner, PluginRepository, PluginRepositoryError, PluginScanner,
+    PluginScannerError, ScanPluginsHandler, UninstallPluginHandler,
+};
 pub use project::{
     Clock, CreateProjectHandler, GetProjectHandler, ListProjectsHandler, ProjectIdGenerator,
     ProjectRepository, ProjectRepositoryError, UpdateProjectHandler, UuidProjectIdGenerator,

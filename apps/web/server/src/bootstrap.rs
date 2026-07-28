@@ -123,6 +123,14 @@ fn build_backend(
         database_path: database_path.to_path_buf(),
         worktree_root: worktree_root.to_path_buf(),
         home_directory: home_directory.to_path_buf(),
+        plugins_root: std::env::var("ORA_PLUGINS_ROOT")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                database_path
+                    .parent()
+                    .unwrap_or_else(|| std::path::Path::new("."))
+                    .join("plugins")
+            }),
     })
     .map_err(web_backend_bootstrap_error)
 }

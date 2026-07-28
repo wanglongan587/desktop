@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "vitest run web/tauri-transport.test.ts",
+    "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri"
   },

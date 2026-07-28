@@ -1,7 +1,8 @@
 use crate::{
-    AgentDefinitionRepositoryError, ProjectRepositoryError, ProjectWorkContextRepositoryError,
-    SessionRepositoryError, SkillRepositoryError, TaskRepositoryError,
-    TaskWorktreeProvisionerError, WorktreeRepositoryError,
+    AgentDefinitionRepositoryError, PluginRepositoryError, PluginScannerError,
+    ProjectRepositoryError, ProjectWorkContextRepositoryError, SessionRepositoryError,
+    SkillRepositoryError, TaskRepositoryError, TaskWorktreeProvisionerError,
+    WorktreeRepositoryError,
 };
 use ora_domain::DomainModelError;
 use thiserror::Error;
@@ -47,6 +48,16 @@ pub enum ApplicationError {
     SessionNotFound { session_id: String },
     #[error("session repository operation failed: {message}")]
     SessionRepository { message: String },
+    #[error("plugin not found: {plugin_id}")]
+    PluginNotFound { plugin_id: String },
+    #[error("plugin repository operation failed: {message}")]
+    PluginRepository { message: String },
+    #[error("plugin manifest invalid: {message}")]
+    PluginManifestInvalid { message: String },
+    #[error("plugin scanner operation failed: {message}")]
+    PluginScanner { message: String },
+    #[error("invalid plugin state transition: {message}")]
+    PluginStateTransition { message: String },
 }
 
 impl ApplicationError {
@@ -137,6 +148,41 @@ impl ApplicationError {
     pub(crate) fn from_session_repository_error(error: SessionRepositoryError) -> Self {
         match error {
             SessionRepositoryError::OperationFailed(message) => Self::SessionRepository { message },
+        }
+    }
+
+    /// Converts plugin construction or state-machine validation failures into application errors.
+    pub(crate) fn from_plugin_domain_error(error: DomainModelError) -> Self {
+        match error {
+            DomainModelError::EmptyPluginVersion => Self::PluginManifestInvalid {
+                message: "manifest version must not be blank".to_string(),
+            },
+            DomainModelError::InvalidPluginLifecycleState(value) => Self::PluginManifestInvalid {
+                message: format!("invalid lifecycle state code: {value}"),
+            },
+            DomainModelError::InvalidPluginStateTransition {
+                from_state,
+                to_state,
+            } => Self::PluginStateTransition {
+                message: format!("{from_state:?} -> {to_state:?}"),
+            },
+            _ => Self::PluginRepository {
+                message: error.to_string(),
+            },
+        }
+    }
+
+    /// Maps plugin repository failures into stable application errors.
+    pub(crate) fn from_plugin_repository_error(error: PluginRepositoryError) -> Self {
+        match error {
+            PluginRepositoryError::OperationFailed(message) => Self::PluginRepository { message },
+        }
+    }
+
+    /// Maps plugin scanner failures into stable application errors.
+    pub(crate) fn from_plugin_scanner_error(error: PluginScannerError) -> Self {
+        match error {
+            PluginScannerError::OperationFailed(message) => Self::PluginScanner { message },
         }
     }
 }

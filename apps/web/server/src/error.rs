@@ -199,6 +199,31 @@ impl From<ApplicationError> for WebApiError {
                 code: "session_repository_error",
                 message,
             },
+            ApplicationError::PluginNotFound { plugin_id } => Self {
+                status: StatusCode::NOT_FOUND,
+                code: "plugin_not_found",
+                message: format!("plugin not found: {plugin_id}"),
+            },
+            ApplicationError::PluginRepository { message } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "plugin_repository_error",
+                message,
+            },
+            ApplicationError::PluginManifestInvalid { message } => Self {
+                status: StatusCode::BAD_REQUEST,
+                code: "plugin_manifest_invalid",
+                message,
+            },
+            ApplicationError::PluginScanner { message } => Self {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                code: "plugin_scanner_error",
+                message,
+            },
+            ApplicationError::PluginStateTransition { message } => Self {
+                status: StatusCode::CONFLICT,
+                code: "plugin_state_transition",
+                message,
+            },
         }
     }
 }

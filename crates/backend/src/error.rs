@@ -145,6 +145,29 @@ impl From<ApplicationError> for BackendError {
                 "session_repository_error",
                 "session repository operation failed",
             ),
+            ApplicationError::PluginNotFound { plugin_id } => Self::new(
+                BackendErrorKind::NotFound,
+                "plugin_not_found",
+                format!("plugin not found: {plugin_id}"),
+            ),
+            ApplicationError::PluginRepository { message } => Self::new(
+                BackendErrorKind::Internal,
+                "plugin_repository_error",
+                message,
+            ),
+            ApplicationError::PluginManifestInvalid { .. } => Self::new(
+                BackendErrorKind::BadRequest,
+                "plugin_manifest_invalid",
+                "plugin manifest is invalid",
+            ),
+            ApplicationError::PluginScanner { .. } => {
+                internal("plugin_scanner_error", "plugin scanner operation failed")
+            }
+            ApplicationError::PluginStateTransition { .. } => Self::new(
+                BackendErrorKind::Conflict,
+                "plugin_state_transition",
+                "plugin state transition is not permitted",
+            ),
         }
     }
 }

@@ -2,6 +2,9 @@ use crate::config::validate_worktree_root;
 use crate::error::CommandError;
 use crate::state::DesktopState;
 use ora_backend::{Backend, BackendError};
+use ora_contracts::acp::notification::CancelNotification;
+use ora_contracts::acp::prompt::{PromptRequest, PromptResponse};
+use ora_contracts::acp::session::{NewSessionRequest, NewSessionResponse};
 use ora_contracts::*;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -388,6 +391,49 @@ backend_command!(
     "Deletes one configurable agent through the shared Backend."
 );
 
+backend_command!(
+    scan_plugins,
+    ScanPluginsRequest,
+    ScanPluginsResponse,
+    scan_plugins,
+    "Scans the plugins directory for installable manifests."
+);
+backend_command!(
+    install_plugin,
+    InstallPluginRequest,
+    InstallPluginResponse,
+    install_plugin,
+    "Installs a discovered plugin."
+);
+backend_command!(
+    list_plugins,
+    ListPluginsRequest,
+    ListPluginsResponse,
+    list_plugins,
+    "Lists installed plugins."
+);
+backend_command!(
+    enable_plugin,
+    EnablePluginRequest,
+    EnablePluginResponse,
+    enable_plugin,
+    "Enables an installed plugin."
+);
+backend_command!(
+    disable_plugin,
+    DisablePluginRequest,
+    DisablePluginResponse,
+    disable_plugin,
+    "Disables an enabled plugin."
+);
+backend_command!(
+    uninstall_plugin,
+    UninstallPluginRequest,
+    UninstallPluginResponse,
+    uninstall_plugin,
+    "Uninstalls a plugin."
+);
+
 /// Carries the empty request used to read Desktop runtime configuration consistently.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -617,4 +663,72 @@ pub async fn set_worktree_root(
     })
     .await
     .map_err(|_| CommandError::execution())?
+}
+
+/// Spawns a plugin process and completes the `initialize` handshake.
+#[tauri::command]
+pub async fn plugin_activate(
+    state: State<'_, DesktopState>,
+    plugin: Plugin,
+) -> Result<(), CommandError> {
+    let manager = state.plugin_runtime.clone();
+    manager
+        .activate(&plugin.id, plugin.entrypoint, &plugin.source_path)
+        .await
+        .map_err(CommandError::from)
+}
+
+/// Shuts down and removes an active plugin.
+#[tauri::command]
+pub async fn plugin_deactivate(
+    state: State<'_, DesktopState>,
+    plugin_id: String,
+) -> Result<(), CommandError> {
+    let manager = state.plugin_runtime.clone();
+    manager
+        .deactivate(&plugin_id)
+        .await
+        .map_err(CommandError::from)
+}
+
+/// Forwards an `agent/newSession` request to an active plugin.
+#[tauri::command]
+pub async fn plugin_agent_new_session(
+    state: State<'_, DesktopState>,
+    plugin_id: String,
+    request: NewSessionRequest,
+) -> Result<NewSessionResponse, CommandError> {
+    let manager = state.plugin_runtime.clone();
+    manager
+        .new_session(&plugin_id, request)
+        .await
+        .map_err(CommandError::from)
+}
+
+/// Forwards an `agent/prompt` request to an active plugin.
+#[tauri::command]
+pub async fn plugin_agent_prompt(
+    state: State<'_, DesktopState>,
+    plugin_id: String,
+    request: PromptRequest,
+) -> Result<PromptResponse, CommandError> {
+    let manager = state.plugin_runtime.clone();
+    manager
+        .prompt(&plugin_id, request)
+        .await
+        .map_err(CommandError::from)
+}
+
+/// Forwards an `agent/cancel` request to an active plugin.
+#[tauri::command]
+pub async fn plugin_agent_cancel(
+    state: State<'_, DesktopState>,
+    plugin_id: String,
+    request: CancelNotification,
+) -> Result<(), CommandError> {
+    let manager = state.plugin_runtime.clone();
+    manager
+        .cancel(&plugin_id, request)
+        .await
+        .map_err(CommandError::from)
 }

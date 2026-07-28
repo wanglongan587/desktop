@@ -2,6 +2,7 @@ use crate::agent::AgentApi;
 use crate::agent_runtime::{AgentRuntimeManager, SessionEventStream};
 use crate::clock::SystemClock;
 use crate::error::{BackendError, BackendErrorKind};
+use crate::plugin::PluginApi;
 use crate::project::ProjectApi;
 use crate::session::SessionApi;
 use crate::skill::SkillApi;
@@ -19,6 +20,7 @@ pub struct BackendPaths {
     pub database_path: PathBuf,
     pub worktree_root: PathBuf,
     pub home_directory: PathBuf,
+    pub plugins_root: PathBuf,
 }
 
 /// Reports failures that prevent the shared backend from opening persistent state.
@@ -47,6 +49,7 @@ pub struct Backend {
     agent_runtime: Arc<AgentRuntimeManager>,
     skill: Arc<SkillApi>,
     agent: Arc<AgentApi>,
+    plugin: Arc<PluginApi>,
 }
 
 impl Backend {
@@ -59,6 +62,7 @@ impl Backend {
                 .unwrap_or_else(|| Path::new(".")),
         )?;
         ensure_directory(&paths.worktree_root)?;
+        ensure_directory(&paths.plugins_root)?;
         let catalog = default_migration_catalog().map_err(BackendBootstrapError::Database)?;
         let pool = DatabaseBootstrapper::system()
             .bootstrap_repository_pool(&DatabaseLocation::path(&paths.database_path), &catalog)
@@ -75,6 +79,11 @@ impl Backend {
             agent_runtime: Arc::new(agent_runtime),
             skill: Arc::new(SkillApi::new(pool.clone(), clock)),
             agent: Arc::new(AgentApi::new(pool.clone(), clock)),
+            plugin: Arc::new(PluginApi::new(
+                pool.clone(),
+                clock,
+                paths.plugins_root.clone(),
+            )),
             pool,
             worktree_root,
         })
@@ -316,6 +325,49 @@ impl Backend {
     ) -> Result<DeleteAgentResponse, BackendError> {
         self.agent.delete(request).map_err(BackendError::from)
     }
+
+    /// Scans the plugins directory for installable manifests.
+    pub fn scan_plugins(
+        &self,
+        request: ScanPluginsRequest,
+    ) -> Result<ScanPluginsResponse, BackendError> {
+        self.plugin.scan(request).map_err(BackendError::from)
+    }
+    /// Installs a discovered plugin.
+    pub fn install_plugin(
+        &self,
+        request: InstallPluginRequest,
+    ) -> Result<InstallPluginResponse, BackendError> {
+        self.plugin.install(request).map_err(BackendError::from)
+    }
+    /// Lists installed plugins.
+    pub fn list_plugins(
+        &self,
+        request: ListPluginsRequest,
+    ) -> Result<ListPluginsResponse, BackendError> {
+        self.plugin.list(request).map_err(BackendError::from)
+    }
+    /// Enables an installed plugin.
+    pub fn enable_plugin(
+        &self,
+        request: EnablePluginRequest,
+    ) -> Result<EnablePluginResponse, BackendError> {
+        self.plugin.enable(request).map_err(BackendError::from)
+    }
+    /// Disables an enabled plugin.
+    pub fn disable_plugin(
+        &self,
+        request: DisablePluginRequest,
+    ) -> Result<DisablePluginResponse, BackendError> {
+        self.plugin.disable(request).map_err(BackendError::from)
+    }
+    /// Uninstalls (soft-deletes) a plugin.
+    pub fn uninstall_plugin(
+        &self,
+        request: UninstallPluginRequest,
+    ) -> Result<UninstallPluginResponse, BackendError> {
+        self.plugin.uninstall(request).map_err(BackendError::from)
+    }
 }
 
 /// Creates one required runtime directory and preserves its exact failing path.
@@ -352,6 +404,7 @@ mod tests {
             database_path: database_path.clone(),
             worktree_root: worktree_root.clone(),
             home_directory: temporary.path().to_path_buf(),
+            plugins_root: temporary.path().join("plugins"),
         })
         .expect("open shared backend");
 
@@ -463,6 +516,7 @@ mod tests {
             database_path: temporary.path().join("ora.sqlite3"),
             worktree_root: original_worktree_root.clone(),
             home_directory: temporary.path().to_path_buf(),
+            plugins_root: temporary.path().join("plugins"),
         })
         .expect("open shared backend");
         let project = backend

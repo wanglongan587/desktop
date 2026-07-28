@@ -2,5 +2,6 @@ packages:
   - 'apps/*'
   - 'apps/web/client'
   - 'packages/*'
+  - 'plugins/*'
 allowBuilds:
   esbuild: true

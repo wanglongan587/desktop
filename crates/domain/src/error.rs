@@ -1,3 +1,4 @@
+use crate::PluginLifecycleState;
 use thiserror::Error;
 
 /// Enumerates domain-model conversion failures that adapters must handle explicitly.
@@ -19,4 +20,15 @@ pub enum DomainModelError {
     EmptySkillName,
     #[error("agent definition name must not be blank")]
     EmptyAgentDefinitionName,
+    #[error("invalid plugin lifecycle state value: {0}")]
+    InvalidPluginLifecycleState(i64),
+    #[error("invalid plugin kind value: {0}")]
+    InvalidPluginKind(i64),
+    #[error("invalid plugin state transition: {from_state:?} -> {to_state:?}")]
+    InvalidPluginStateTransition {
+        from_state: PluginLifecycleState,
+        to_state: PluginLifecycleState,
+    },
+    #[error("plugin manifest version must not be blank")]
+    EmptyPluginVersion,
 }

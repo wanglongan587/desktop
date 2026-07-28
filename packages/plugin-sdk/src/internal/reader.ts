@@ -1,37 +1,53 @@
-const decoder = new TextDecoder();
-let lineBuffer = "";
+import type { Frame, JsonRpcInbound } from "../protocol";
 
-/**
- * 逐行产出 stdin 数据。模块级闭包保持单例 iterator。
- */
-async function* lineIterator(): AsyncGenerator<string> {
+const FRAME_TYPE_JSON = 1;
+
+/// Maximum payload size (16 MB) to guard against corrupt frames.
+const MAX_PAYLOAD_SIZE = 16 * 1024 * 1024;
+
+let buffer = Buffer.alloc(0);
+
+/// Yields complete binary frames from stdin, handling partial reads (分包) and
+/// multiple frames per read (粘包). Frame: `[type: i8][length: i32 BE][payload: n]`.
+async function* frameIterator(): AsyncGenerator<Frame> {
   for await (const chunk of process.stdin) {
-    lineBuffer += decoder.decode(chunk, { stream: true });
-    while (true) {
-      const idx = lineBuffer.indexOf("\n");
-      if (idx < 0) break;
-      const line = lineBuffer.slice(0, idx);
-      lineBuffer = lineBuffer.slice(idx + 1);
-      yield line;
+    buffer = Buffer.concat([buffer, chunk instanceof Buffer ? chunk : Buffer.from(chunk)]);
+    for (;;) {
+      if (buffer.length < 5) break; // Header incomplete (分包).
+      const type = buffer.readInt8(0);
+      const length = buffer.readInt32BE(1);
+      if (length < 0 || length > MAX_PAYLOAD_SIZE) {
+        buffer = Buffer.alloc(0); // Invalid frame: reset.
+        break;
+      }
+      if (buffer.length < 5 + length) break; // Payload incomplete (分包).
+      const payload = buffer.subarray(5, 5 + length);
+      yield { type, payload };
+      buffer = buffer.subarray(5 + length); // Consume frame, keep remainder (粘包).
     }
-  }
-  // stdin 关闭——产出 buffer 中剩余内容
-  if (lineBuffer.length > 0) {
-    yield lineBuffer;
-    lineBuffer = "";
   }
 }
 
-const iterator = lineIterator();
+const iterator = frameIterator();
 
-/**
- * 从 stdin 读取下一行。返回 null 表示 stdin 已关闭。
- *
- * 使用模块级闭包保持 iterator 和 buffer 单例——
- * 多次调用共享同一个 stdin 流。
- */
-export async function readLine(): Promise<string | null> {
+/// Reads one binary frame from stdin. Returns null on EOF.
+export async function readFrame(): Promise<Frame | null> {
   const result = await iterator.next();
   if (result.done) return null;
   return result.value;
+}
+
+/// Reads a type=1 (JSON) frame and parses it as JSON-RPC. Returns null on EOF.
+/// Skips non-JSON frames (future: dispatch to a registered callback).
+export async function readMessage(): Promise<JsonRpcInbound | null> {
+  for (;;) {
+    const frame = await readFrame();
+    if (frame === null) return null;
+    if (frame.type !== FRAME_TYPE_JSON) continue; // Skip non-JSON (future dispatch).
+    try {
+      return JSON.parse(frame.payload.toString()) as JsonRpcInbound;
+    } catch {
+      // Skip malformed JSON payload.
+    }
+  }
 }

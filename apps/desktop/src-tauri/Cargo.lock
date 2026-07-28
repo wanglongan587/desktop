@@ -2492,6 +2492,8 @@ dependencies = [
  "ora-contracts",
  "ora-domain",
  "ora-logging",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2551,6 +2553,8 @@ dependencies = [
  "ora-backend",
  "ora-contracts",
  "ora-logging",
+ "ora-plugin-runtime",
+ "ora-process",
  "pretty_assertions",
  "serde",
  "serde_json",
@@ -2585,6 +2589,20 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "ora-plugin-runtime"
+version = "0.0.0"
+dependencies = [
+ "ora-contracts",
+ "ora-process",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]
