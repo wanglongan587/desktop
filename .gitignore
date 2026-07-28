@@ -28,3 +28,11 @@ packages/contracts/.test-dist/
 /.data
 .tmp
 *.tsbuildinfo
+
+# Generated artifacts and stray lockfiles (project uses pnpm-lock.yaml)
+outputs/
+package-lock.json
+# Office temporary/lock files (e.g. ~$report.pptx)
+~$*
+# Ad-hoc temp archives
+_tmp.zip
