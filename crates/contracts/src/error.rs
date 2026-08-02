@@ -120,6 +120,8 @@ pub enum PublicError {
     SkillManifestDescriptionBlank(EmptyErrorParams),
     SkillManifestNameInvalid(EmptyErrorParams),
     SkillFolderConflict(SkillFolderConflictParams),
+    SpecWorkspaceUnavailable(EmptyErrorParams),
+    SpecNotFound(EmptyErrorParams),
 }
 
 impl PublicError {
@@ -168,6 +170,8 @@ impl PublicError {
             Self::SkillManifestDescriptionBlank(_) => "skill_manifest_description_blank",
             Self::SkillManifestNameInvalid(_) => "skill_manifest_name_invalid",
             Self::SkillFolderConflict(_) => "skill_folder_conflict",
+            Self::SpecWorkspaceUnavailable(_) => "spec_workspace_unavailable",
+            Self::SpecNotFound(_) => "spec_not_found",
         }
     }
 }

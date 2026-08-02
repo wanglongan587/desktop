@@ -147,6 +147,12 @@ export const contractErrorSchema = z.object({
     }), z.object({
         "code": z.literal("skill_folder_conflict"),
         "params": skillFolderConflictParamsSchema
+    }), z.object({
+        "code": z.literal("spec_workspace_unavailable"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("spec_not_found"),
+        "params": emptyErrorParamsSchema
     })]));
 
 export const publicErrorSchema = z.union([z.object({
@@ -275,4 +281,10 @@ export const publicErrorSchema = z.union([z.object({
     }), z.object({
         "code": z.literal("skill_folder_conflict"),
         "params": skillFolderConflictParamsSchema
+    }), z.object({
+        "code": z.literal("spec_workspace_unavailable"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
+        "code": z.literal("spec_not_found"),
+        "params": emptyErrorParamsSchema
     })]);

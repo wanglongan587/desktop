@@ -6,6 +6,7 @@ import type { CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest,
 import type { OpenProjectWorkContextRequest, OpenProjectWorkContextResponse, RenewProjectWorkContextRequest, RenewProjectWorkContextResponse } from "./project-work-context.js";
 import type { CreateSessionRequest, CreateSessionResponse, DeleteSessionRequest, DeleteSessionResponse, GetSessionRequest, GetSessionResponse, ListAgentModelsRequest, ListAgentModelsResponse, ListSessionsRequest, ListSessionsResponse, LoadSessionEvent, LoadSessionRequest, PromptSessionEvent, PromptSessionRequest, RespondToPermissionRequest, RespondToPermissionResponse, StopSessionRequest, StopSessionResponse } from "./session.js";
 import type { CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse, GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, UpdateSkillRequest, UpdateSkillResponse } from "./skill.js";
+import type { ListSpecsRequest, ListSpecsResponse, ReadSpecRequest, ReadSpecResponse } from "./spec.js";
 import type { CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest, GetTaskResponse, ListTasksRequest, ListTasksResponse, UpdateTaskRequest, UpdateTaskResponse } from "./task.js";
 import type { HttpMethod } from "./transport.js";
 
@@ -66,6 +67,8 @@ export type RequestByOperation = {
   updateAgent: UpdateAgentRequest;
   deleteAgent: DeleteAgentRequest;
   listDirectory: ListDirectoryRequest;
+  listSpecs: ListSpecsRequest;
+  readSpec: ReadSpecRequest;
   getGitIdentity: GetGitIdentityRequest;
 };
 
@@ -102,6 +105,8 @@ export type ResponseByOperation = {
   updateAgent: UpdateAgentResponse;
   deleteAgent: DeleteAgentResponse;
   listDirectory: ListDirectoryResponse;
+  listSpecs: ListSpecsResponse;
+  readSpec: ReadSpecResponse;
   getGitIdentity: GitIdentityResponse;
 };
 
@@ -522,6 +527,32 @@ export const endpoints = {
     responseMode: "unary",
     pathParams: [],
     queryParams: [{ rustFieldName: "path", wireName: "path" }],
+    hasJsonBody: false,
+  },
+  listSpecs: {
+    operationName: "listSpecs",
+    namespace: "spec",
+    memberName: "list",
+    method: "GET",
+    pathTemplate: "/api/specs",
+    requestType: "ListSpecsRequest",
+    responseType: "ListSpecsResponse",
+    responseMode: "unary",
+    pathParams: [],
+    queryParams: [{ rustFieldName: "project_id", wireName: "projectId" }, { rustFieldName: "task_id", wireName: "taskId" }],
+    hasJsonBody: false,
+  },
+  readSpec: {
+    operationName: "readSpec",
+    namespace: "spec",
+    memberName: "read",
+    method: "GET",
+    pathTemplate: "/api/specs/content",
+    requestType: "ReadSpecRequest",
+    responseType: "ReadSpecResponse",
+    responseMode: "unary",
+    pathParams: [],
+    queryParams: [{ rustFieldName: "project_id", wireName: "projectId" }, { rustFieldName: "task_id", wireName: "taskId" }, { rustFieldName: "path", wireName: "path" }],
     hasJsonBody: false,
   },
   getGitIdentity: {

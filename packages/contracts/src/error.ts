@@ -54,6 +54,8 @@ export type ContractError =
     | { "code": "skill_manifest_description_blank"; "params": EmptyErrorParams }
     | { "code": "skill_manifest_name_invalid"; "params": EmptyErrorParams }
     | { "code": "skill_folder_conflict"; "params": SkillFolderConflictParams }
+    | { "code": "spec_workspace_unavailable"; "params": EmptyErrorParams }
+    | { "code": "spec_not_found"; "params": EmptyErrorParams }
   );
 
 /**
@@ -119,7 +121,9 @@ export type PublicError =
   | { "code": "skill_manifest_name_blank"; "params": EmptyErrorParams }
   | { "code": "skill_manifest_description_blank"; "params": EmptyErrorParams }
   | { "code": "skill_manifest_name_invalid"; "params": EmptyErrorParams }
-  | { "code": "skill_folder_conflict"; "params": SkillFolderConflictParams };
+  | { "code": "skill_folder_conflict"; "params": SkillFolderConflictParams }
+  | { "code": "spec_workspace_unavailable"; "params": EmptyErrorParams }
+  | { "code": "spec_not_found"; "params": EmptyErrorParams };
 
 /**
  * Identifies one Ora request across adapters, spans, responses, and completion events.

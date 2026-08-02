@@ -332,6 +332,8 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "UpdateAgentResponse" => "agent",
         // fileSystem
         "ListDirectoryRequest" | "ListDirectoryResponse" => "file-system",
+        // spec
+        "ListSpecsRequest" | "ListSpecsResponse" | "ReadSpecRequest" | "ReadSpecResponse" => "spec",
         // gitIdentity
         "GetGitIdentityRequest" | "GitIdentityResponse" => "git",
         other => panic!("unknown contract type `{other}`"),

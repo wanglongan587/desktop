@@ -57,6 +57,8 @@ impl FrontendEndpoint {
     pub fn query_params(&self) -> &'static [FrontendQueryParam] {
         match self.operation_name {
             "listDirectory" => FILE_SYSTEM_DIRECTORY_QUERY_PARAMS,
+            "listSpecs" => LIST_SPECS_QUERY_PARAMS,
+            "readSpec" => READ_SPEC_QUERY_PARAMS,
             _ => NO_QUERY_PARAMS,
         }
     }
@@ -89,6 +91,8 @@ pub const AGENTS_PATH: &str = "/api/agents";
 pub const AGENT_PATH: &str = "/api/agents/{agentId}";
 pub const FILE_SYSTEM_DIRECTORY_PATH: &str = "/api/file-system/directory";
 pub const GIT_IDENTITY_PATH: &str = "/api/git/identity";
+pub const SPECS_PATH: &str = "/api/specs";
+pub const SPEC_CONTENT_PATH: &str = "/api/specs/content";
 
 const PROJECT_ID_PATH_PARAM: FrontendPathParam = FrontendPathParam {
     rust_field_name: "project_id",
@@ -114,6 +118,18 @@ const FILE_SYSTEM_DIRECTORY_PATH_QUERY_PARAM: FrontendQueryParam = FrontendQuery
     rust_field_name: "path",
     wire_name: "path",
 };
+const SPEC_PROJECT_ID_QUERY_PARAM: FrontendQueryParam = FrontendQueryParam {
+    rust_field_name: "project_id",
+    wire_name: "projectId",
+};
+const SPEC_TASK_ID_QUERY_PARAM: FrontendQueryParam = FrontendQueryParam {
+    rust_field_name: "task_id",
+    wire_name: "taskId",
+};
+const SPEC_PATH_QUERY_PARAM: FrontendQueryParam = FrontendQueryParam {
+    rust_field_name: "path",
+    wire_name: "path",
+};
 
 const PROJECT_NAMESPACE: &str = "project";
 const PROJECT_WORK_CONTEXT_NAMESPACE: &str = "projectWorkContext";
@@ -124,6 +140,7 @@ const SKILL_NAMESPACE: &str = "skill";
 const AGENT_NAMESPACE: &str = "agent";
 const FILE_SYSTEM_NAMESPACE: &str = "fileSystem";
 const GIT_NAMESPACE: &str = "gitIdentity";
+const SPEC_NAMESPACE: &str = "spec";
 
 const PROJECT_PATH_PARAMS: &[FrontendPathParam] = &[PROJECT_ID_PATH_PARAM];
 const TASK_PATH_PARAMS: &[FrontendPathParam] = &[TASK_ID_PATH_PARAM];
@@ -133,6 +150,13 @@ const AGENT_PATH_PARAMS: &[FrontendPathParam] = &[AGENT_ID_PATH_PARAM];
 const NO_PATH_PARAMS: &[FrontendPathParam] = &[];
 const FILE_SYSTEM_DIRECTORY_QUERY_PARAMS: &[FrontendQueryParam] =
     &[FILE_SYSTEM_DIRECTORY_PATH_QUERY_PARAM];
+const LIST_SPECS_QUERY_PARAMS: &[FrontendQueryParam] =
+    &[SPEC_PROJECT_ID_QUERY_PARAM, SPEC_TASK_ID_QUERY_PARAM];
+const READ_SPEC_QUERY_PARAMS: &[FrontendQueryParam] = &[
+    SPEC_PROJECT_ID_QUERY_PARAM,
+    SPEC_TASK_ID_QUERY_PARAM,
+    SPEC_PATH_QUERY_PARAM,
+];
 const NO_QUERY_PARAMS: &[FrontendQueryParam] = &[];
 
 const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
@@ -509,6 +533,31 @@ const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
         path_template: FILE_SYSTEM_DIRECTORY_PATH,
         request_type: "ListDirectoryRequest",
         response_type: "ListDirectoryResponse",
+        path_params: NO_PATH_PARAMS,
+        has_json_body: false,
+    },
+    // =============================================================================
+    // spec
+    // =============================================================================
+    FrontendEndpoint {
+        operation_name: "listSpecs",
+        namespace: SPEC_NAMESPACE,
+        member_name: "list",
+        method: FrontendHttpMethod::Get,
+        path_template: SPECS_PATH,
+        request_type: "ListSpecsRequest",
+        response_type: "ListSpecsResponse",
+        path_params: NO_PATH_PARAMS,
+        has_json_body: false,
+    },
+    FrontendEndpoint {
+        operation_name: "readSpec",
+        namespace: SPEC_NAMESPACE,
+        member_name: "read",
+        method: FrontendHttpMethod::Get,
+        path_template: SPEC_CONTENT_PATH,
+        request_type: "ReadSpecRequest",
+        response_type: "ReadSpecResponse",
         path_params: NO_PATH_PARAMS,
         has_json_body: false,
     },

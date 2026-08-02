@@ -9,6 +9,7 @@ mod project;
 mod project_work_context;
 mod session;
 mod skill;
+mod spec;
 mod task;
 
 pub use agent::{
@@ -30,7 +31,8 @@ pub use frontend::{
     GIT_IDENTITY_PATH, PROJECT_PATH, PROJECT_WORK_CONTEXT_OPEN_PATH,
     PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH, SESSION_LOAD_PATH, SESSION_PATH,
     SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH, SESSION_STOP_PATH, SESSIONS_PATH,
-    SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH, frontend_endpoints,
+    SKILL_PATH, SKILLS_PATH, SPEC_CONTENT_PATH, SPECS_PATH, TASK_PATH, TASKS_PATH,
+    frontend_endpoints,
 };
 pub use git::{GetGitIdentityRequest, GitIdentityResponse};
 pub use project::{
@@ -54,6 +56,10 @@ pub use skill::{
     CreateSkillRequest, CreateSkillResponse, DeleteSkillRequest, DeleteSkillResponse,
     GetSkillRequest, GetSkillResponse, ListSkillsRequest, ListSkillsResponse, Skill,
     UpdateSkillRequest, UpdateSkillResponse,
+};
+pub use spec::{
+    ListSpecsRequest, ListSpecsResponse, ReadSpecRequest, ReadSpecResponse, SpecDocument,
+    SpecSource,
 };
 use std::path::Path;
 pub use task::{
@@ -81,6 +87,7 @@ pub fn export_typescript_bindings_to(
     project_work_context::export(&config)?;
     session::export(&config)?;
     skill::export(&config)?;
+    spec::export(&config)?;
     task::export(&config)?;
 
     Ok(())

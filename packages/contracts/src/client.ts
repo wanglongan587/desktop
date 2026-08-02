@@ -108,6 +108,10 @@ export function createContractsClient(
       listDirectory: (request, options) =>
         executeOperation("listDirectory", request, transport, options),
     },
+    spec: {
+      list: (request, options) => executeOperation("listSpecs", request, transport, options),
+      read: (request, options) => executeOperation("readSpec", request, transport, options),
+    },
     gitIdentity: {
       get: (request, options) =>
         executeOperation("getGitIdentity", request, transport, options),
