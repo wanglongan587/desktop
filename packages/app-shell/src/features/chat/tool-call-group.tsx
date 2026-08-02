@@ -9,7 +9,8 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@ora/ui";
 import { useTranslation } from "react-i18next";
 import type { ChatToolCall, ChatToolCallStatus } from "@ora/chat";
-import { ToolCallBlock, ToolStatus } from "./tool-call-block";
+import { ToolCallBlock } from "./tool-call-block";
+import { ToolStatus } from "./tool-status";
 import type { ToolCallGroupKind } from "./tool-call-group-kind";
 
 interface ToolCallGroupProps {

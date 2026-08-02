@@ -20,6 +20,7 @@ import {
   IconAlertTriangle,
   IconDots,
   IconEdit,
+  IconFileText,
   IconFolder,
   IconGitBranch,
   IconLayoutSidebarLeftCollapse,
@@ -37,7 +38,9 @@ import { localizeContractError } from "../../i18n/contract-error";
 import { useProjects } from "../../state/hooks/use-projects";
 import { useTasks } from "../../state/hooks/use-tasks";
 import { useSessions } from "../../state/hooks/use-sessions";
+import { useSpecs } from "../../state/hooks/use-specs";
 import { useUiStore } from "../../state/stores/ui-store";
+import { useSpecPanelStore } from "../../state/stores/spec-panel-store";
 import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { useUnreadSessionsStore } from "../../state/stores/unread-sessions-store";
 import { OraMark } from "../../components/ora-mark";
@@ -60,6 +63,9 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const projectsQuery = useProjects();
   const tasksQuery = useTasks();
   const sessionsQuery = useSessions();
+  // The catalog is scoped to the active workspace, so only that project's row can
+  // show a count; every other row offers the entry point without one.
+  const specsQuery = useSpecs();
   const chatStore = useChatStore();
   const conversations = useStore(chatStore, (state) => state.conversations);
   const unread = useUnreadSessionsStore((s) => s.unread);
@@ -84,6 +90,7 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
   const setSettingsOpen = useUiStore((s) => s.setSettingsOpen);
   const setDialog = useUiStore((s) => s.setDialog);
   const setDeleteTarget = useUiStore((s) => s.setDeleteTarget);
+  const openSpecPanel = useSpecPanelStore((s) => s.openPanel);
 
   const needle = query.trim().toLowerCase();
 
@@ -108,6 +115,14 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
 
   const openProject = (projectId: string) => {
     toggleProjectExpand(projectId);
+  };
+
+  // Opening specs from a row that is already inside the selected project keeps the
+  // finer selection (a worktree task reads its own branch), so only a different
+  // project moves the workspace scope.
+  const openSpecs = (projectId: string) => {
+    if (selection.projectId !== projectId) selectProject(projectId);
+    openSpecPanel();
   };
 
   const openTask = (taskId: string) => {
@@ -230,6 +245,10 @@ export function WorkspaceSidebar({ user, onSignOut }: WorkspaceSidebarProps) {
                   onClick={() => openProject(project.id)}
                   action={(
                     <>
+                      <SpecsButton
+                        count={selection.projectId === project.id ? specsQuery.data?.specs.length ?? null : null}
+                        onClick={() => openSpecs(project.id)}
+                      />
                       <NewWorktreeButton onClick={() => setDialog({ kind: "task", projectId: project.id })} />
                       <NewDirectChatButton onClick={() => selectProject(project.id)} />
                     </>
@@ -489,6 +508,43 @@ function NewWorktreeButton({ onClick }: { onClick: () => void }) {
         <IconGitBranch />
       </TooltipTrigger>
       <TooltipContent>{t("sidebar.newTask")}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Opens the spec panel scoped to the row's project.
+ *
+ * The count is only rendered when the catalog for that project is already loaded,
+ * so the sidebar never fans out one scan per project just to decorate a row.
+ */
+function SpecsButton({ count, onClick }: { count: number | null; onClick: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={(
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={t("spec.open")}
+            onClick={(event) => {
+              event.stopPropagation();
+              onClick();
+            }}
+          />
+        )}
+      >
+        <span className="relative flex items-center justify-center">
+          <IconFileText />
+          {count !== null && count > 0 && (
+            <span className="absolute -right-1.5 -top-1 min-w-3 rounded-full bg-sky-500 px-1 text-[9px] font-medium leading-3 text-white tabular-nums">
+              {count}
+            </span>
+          )}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>{t("spec.open")}</TooltipContent>
     </Tooltip>
   );
 }

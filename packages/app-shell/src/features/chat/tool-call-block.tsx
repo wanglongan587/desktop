@@ -1,13 +1,9 @@
 import { useState } from "react";
 import {
-  IconAlertTriangle,
-  IconBan,
-  IconCheck,
   IconChevronDown,
   IconCode,
   IconFileDiff,
   IconFileText,
-  IconLoader2,
   IconArrowsExchange,
   IconArrowsMove,
   IconSearch,
@@ -18,10 +14,12 @@ import {
 } from "@tabler/icons-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@ora/ui";
 import { useTranslation } from "react-i18next";
-import type { ChatToolCall, ChatToolCallStatus } from "@ora/chat";
+import type { ChatToolCall } from "@ora/chat";
 import type { acp } from "@ora/contracts";
+import { SpecCard, useSpecToolCall } from "../spec/spec-card";
 import { DiffView } from "./diff-view";
 import { ContentBlock } from "./content-block";
+import { ToolStatus } from "./tool-status";
 
 interface ToolCallBlockProps {
   tool: ChatToolCall;
@@ -37,6 +35,7 @@ export function ToolCallBlock({
   expanded,
   onExpandedChange,
 }: ToolCallBlockProps) {
+  const specWrite = useSpecToolCall(tool);
   const [disclosure, setDisclosure] = useState({ status: tool.status, open: tool.status !== "completed" });
   if (expanded === undefined && disclosure.status !== tool.status) {
     setDisclosure({
@@ -44,6 +43,12 @@ export function ToolCallBlock({
       open: tool.status !== "completed",
     });
   }
+  // A spec write is a document event, not a code change: the diff of a prose file
+  // is unreadable in the stream, and what the user wants is the document itself.
+  if (specWrite !== null) {
+    return <SpecCard tool={tool} sourceName={specWrite.sourceName} path={specWrite.path} />;
+  }
+
   const open = expanded ?? disclosure.open;
   const setOpen = (nextOpen: boolean) => {
     if (onExpandedChange !== undefined) onExpandedChange(nextOpen);
@@ -227,21 +232,3 @@ function ToolKindIcon({ kind }: { kind: acp.ToolKind | undefined }) {
   }
 }
 
-/** Displays tool state with both iconography and localized text. */
-export function ToolStatus({ status, compact = false }: { status: ChatToolCallStatus | undefined; compact?: boolean }) {
-  const { t } = useTranslation();
-  switch (status) {
-    case "completed":
-      return <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-emerald-600"><IconCheck className="size-3" />{compact ? <span className="sr-only">{t("chat.toolCompleted")}</span> : t("chat.toolCompleted")}</span>;
-    case "failed":
-      return <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-destructive"><IconAlertTriangle className="size-3" />{compact ? <span className="sr-only">{t("chat.toolFailed")}</span> : t("chat.toolFailed")}</span>;
-    case "cancelled":
-      return <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground"><IconBan className="size-3" />{compact ? <span className="sr-only">{t("chat.toolCancelled")}</span> : t("chat.toolCancelled")}</span>;
-    case "pending":
-      return <span className="shrink-0 text-[11px] text-muted-foreground">{compact ? <span className="sr-only">{t("chat.toolPending")}</span> : t("chat.toolPending")}</span>;
-    case "in_progress":
-      return <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-sky-600"><IconLoader2 className="size-3 animate-spin motion-reduce:animate-none" />{compact ? <span className="sr-only">{t("chat.toolRunning")}</span> : t("chat.toolRunning")}</span>;
-    case undefined:
-      return null;
-  }
-}

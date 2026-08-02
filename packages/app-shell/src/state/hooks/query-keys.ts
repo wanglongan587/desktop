@@ -12,6 +12,11 @@ export const queryKeys = {
   skills: ["skills"] as const,
   gitIdentity: ["gitIdentity"] as const,
   agentModels: ["agentModels"] as const,
+  // Specs live on disk per workspace, so the workspace legs are part of the key:
+  // switching project or task must read a different index, not a stale one.
+  specs: (projectId: string, taskId: string | null) => ["specs", projectId, taskId] as const,
+  specContent: (projectId: string, taskId: string | null, path: string) =>
+    ["specs", projectId, taskId, "content", path] as const,
 };
 
 export type WorkspaceQueryKey = readonly ["projects"] | readonly ["tasks"] | readonly ["sessions"];

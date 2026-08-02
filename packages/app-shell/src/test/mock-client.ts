@@ -4,6 +4,8 @@ import type {
   Project,
   Session,
   Skill,
+  SpecDocument,
+  SpecSource,
   Task,
   TaskStatus,
 } from "@ora/contracts";
@@ -15,11 +17,26 @@ export interface MockClientState {
   sessions: Session[];
   agents: Agent[];
   skills: Skill[];
+  specWorkspaceRoot: string;
+  specSources: SpecSource[];
+  specs: SpecDocument[];
+  /** Markdown bodies keyed by the same workspace-relative path the documents carry. */
+  specContents: Record<string, string>;
 }
 
 /** Creates a fresh in-memory mock state with no records. */
 export function createMockClientState(): MockClientState {
-  return { projects: [], tasks: [], sessions: [], agents: [], skills: [] };
+  return {
+    projects: [],
+    tasks: [],
+    sessions: [],
+    agents: [],
+    skills: [],
+    specWorkspaceRoot: "/workspace",
+    specSources: [],
+    specs: [],
+    specContents: {},
+  };
 }
 
 function nextId(prefix: string, count: number): string {
@@ -173,6 +190,18 @@ export function createMockClient(state: MockClientState): ContractsClient {
         breadcrumbs: [],
         entries: [],
       }),
+    },
+    spec: {
+      list: async () => ({
+        workspaceRoot: state.specWorkspaceRoot,
+        sources: [...state.specSources],
+        specs: [...state.specs],
+      }),
+      read: async (req) => {
+        const spec = state.specs.find((candidate) => candidate.path === req.path);
+        if (spec === undefined) throw new Error(`spec ${req.path} not found`);
+        return { spec, content: state.specContents[req.path] ?? "" };
+      },
     },
   };
 }
