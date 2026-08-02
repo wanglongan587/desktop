@@ -8,6 +8,7 @@ mod project;
 mod request_lifecycle;
 mod session;
 mod skill;
+mod spec;
 mod task;
 
 pub use agent_runtime::SessionEventStream;

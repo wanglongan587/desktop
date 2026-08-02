@@ -4,6 +4,7 @@ mod project;
 mod project_work_context;
 mod repository_error;
 mod session;
+mod spec;
 mod task;
 mod worktree;
 
@@ -31,6 +32,10 @@ pub use session::{
 pub use skill::{
     CreateSkillHandler, DeleteSkillHandler, GetSkillHandler, ListSkillsHandler, SkillIdGenerator,
     SkillRepository, UpdateSkillHandler, UuidSkillIdGenerator,
+};
+pub use spec::{
+    ListSpecsHandler, ReadSpecHandler, SpecCatalogError, SpecCatalogReader, SpecCatalogSnapshot,
+    SpecWorkspaceError, SpecWorkspaceResolver,
 };
 pub use task::{
     CreateTaskHandler, CreateTaskWorktreeRequest, DeleteTaskWorktreeRequest, GetTaskHandler,

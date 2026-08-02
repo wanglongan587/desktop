@@ -121,6 +121,11 @@ Route paths come from the `ora-contracts` endpoint manifest constants, so a rout
 
 - `GET /api/file-system/directory?path={absolute_path}`
 
+### spec
+
+- `GET /api/specs?projectId={project_id}&taskId={task_id}`
+- `GET /api/specs/content?projectId={project_id}&taskId={task_id}&path={workspace_relative_path}`
+
 ### gitIdentity
 
 - `GET /api/git/identity`
@@ -130,6 +135,8 @@ Each route translates transport input into the matching `ora-contracts` request 
 Task payloads do not expose backend-owned worktree identifiers, and the runtime exposes no standalone public worktree endpoints — `/api/worktrees` and `/api/worktrees/{worktreeId}` are not part of the API.
 
 `GET /api/git/identity` returns the host's Git identity for the sidebar profile: the global Git config first, falling back to the authenticated GitHub CLI account when Git has no name configured.
+
+The spec routes read the filesystem, so both handlers run their backend call on a blocking task rather than on the async runtime. Omitting `taskId` targets the project root; supplying it targets that task's workspace, which for a worktree-backed task is a different branch with a different set of spec files.
 
 ### Agent runtime
 

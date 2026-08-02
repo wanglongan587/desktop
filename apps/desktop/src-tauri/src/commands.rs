@@ -493,6 +493,25 @@ backend_command!(
 );
 
 // =============================================================================
+// spec
+// =============================================================================
+
+backend_command!(
+    list_specs,
+    ListSpecsRequest,
+    ListSpecsResponse,
+    list_specs,
+    "Lists the specs discoverable in the requested workspace through the shared Backend."
+);
+backend_command!(
+    read_spec,
+    ReadSpecRequest,
+    ReadSpecResponse,
+    read_spec,
+    "Reads one discovered spec and its markdown body through the shared Backend."
+);
+
+// =============================================================================
 // gitIdentity
 // =============================================================================
 

@@ -9,6 +9,7 @@
 - [project_work_context](src/project_work_context/README.md) owns window-to-project leases and occupancy rules.
 - [session](src/session/README.md) provides persisted session reads and soft deletion.
 - [skill](src/skill/README.md) manages reusable skill records.
+- [spec](src/spec/README.md) browses the spec documents discovered inside a workspace.
 - [task](src/task/README.md) coordinates task persistence and optional Git worktree creation.
 - [worktree](src/worktree/README.md) defines persistence and identity ports for task-owned worktrees.
 

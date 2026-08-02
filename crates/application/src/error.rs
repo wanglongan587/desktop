@@ -77,6 +77,13 @@ pub enum ApplicationError {
         #[source]
         source: RepositoryError,
     },
+    #[error("spec workspace is unavailable")]
+    SpecWorkspaceUnavailable {
+        #[source]
+        source: RepositoryError,
+    },
+    #[error("spec not found: {path}")]
+    SpecNotFound { path: String },
 }
 
 impl ApplicationError {
@@ -162,7 +169,9 @@ impl PartialEq for ApplicationError {
             | (ProjectWorkContextRepository { .. }, ProjectWorkContextRepository { .. })
             | (TaskRepository { .. }, TaskRepository { .. })
             | (WorktreeRepository { .. }, WorktreeRepository { .. })
-            | (SessionRepository { .. }, SessionRepository { .. }) => true,
+            | (SessionRepository { .. }, SessionRepository { .. })
+            | (SpecWorkspaceUnavailable { .. }, SpecWorkspaceUnavailable { .. }) => true,
+            (SpecNotFound { path: left }, SpecNotFound { path: right }) => left == right,
             (SkillNotFound { skill_id: left }, SkillNotFound { skill_id: right }) => left == right,
             (
                 AgentDefinitionNotFound { agent_id: left },

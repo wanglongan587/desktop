@@ -1,6 +1,7 @@
 use crate::app_state::AppState;
 use crate::handlers::{
-    agents, file_system, git, health, project_work_contexts, projects, sessions, skills, tasks,
+    agents, file_system, git, health, project_work_contexts, projects, sessions, skills, specs,
+    tasks,
 };
 use axum::Router;
 use axum::middleware;
@@ -9,7 +10,8 @@ use ora_contracts::{
     AGENT_MODELS_PATH, AGENT_PATH, AGENTS_PATH, FILE_SYSTEM_DIRECTORY_PATH, GIT_IDENTITY_PATH,
     PROJECT_PATH, PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH,
     SESSION_LOAD_PATH, SESSION_PATH, SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH,
-    SESSION_STOP_PATH, SESSIONS_PATH, SKILL_PATH, SKILLS_PATH, TASK_PATH, TASKS_PATH,
+    SESSION_STOP_PATH, SESSIONS_PATH, SKILL_PATH, SKILLS_PATH, SPEC_CONTENT_PATH, SPECS_PATH,
+    TASK_PATH, TASKS_PATH,
 };
 use tower_http::cors::CorsLayer;
 use tower_http::request_id::PropagateRequestIdLayer;
@@ -108,6 +110,11 @@ pub fn build_router(app_state: AppState) -> Router {
         // fileSystem
         // =============================================================================
         .route(FILE_SYSTEM_DIRECTORY_PATH, get(file_system::list_directory))
+        // =============================================================================
+        // spec
+        // =============================================================================
+        .route(SPECS_PATH, get(specs::list_specs))
+        .route(SPEC_CONTENT_PATH, get(specs::read_spec))
         // =============================================================================
         // gitIdentity
         // =============================================================================

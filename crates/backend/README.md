@@ -10,6 +10,7 @@
 - `BackendError` retains the internal source chain while exhaustively projecting semantic failures into a typed `PublicError` and one transport-neutral `ErrorClassification`. HTTP derives status from the classification; all adapters serialize the same direct `ContractError`.
 - `RequestLifecycle` gives Web, Tauri, and stream seams one generated request id and an exactly-once success, failure, or cancellation completion event. Failure log levels derive from `ErrorClassification`.
 - The configured worktree root affects only task creations that begin after an update. Existing task paths are resolved from persisted worktree identity and Git's authoritative metadata.
+- Spec listing and reading resolve the requested workspace — a project root, or a task's own worktree — and serve it from one shared `ora-spec` catalog. Because that catalog watches the filesystem and keeps only the active workspace indexed, this crate owns its lifetime rather than creating one per request.
 
 ## Ownership boundaries
 

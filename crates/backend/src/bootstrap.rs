@@ -5,6 +5,7 @@ use crate::error::{BackendError, ErrorClassification};
 use crate::project::ProjectApi;
 use crate::session::SessionApi;
 use crate::skill::SkillApi;
+use crate::spec::SpecApi;
 use crate::task::TaskApi;
 use ora_contracts::*;
 use ora_contracts::{EmptyErrorParams, PublicError};
@@ -48,6 +49,7 @@ pub struct Backend {
     agent_runtime: Arc<AgentRuntimeManager>,
     skill: Arc<SkillApi>,
     agent: Arc<AgentApi>,
+    spec: Arc<SpecApi>,
 }
 
 impl Backend {
@@ -76,6 +78,7 @@ impl Backend {
             agent_runtime: Arc::new(agent_runtime),
             skill: Arc::new(SkillApi::new(pool.clone(), clock)),
             agent: Arc::new(AgentApi::new(pool.clone(), clock)),
+            spec: Arc::new(SpecApi::new(pool.clone())),
             pool,
             worktree_root,
         })
@@ -332,6 +335,20 @@ impl Backend {
         request: DeleteAgentRequest,
     ) -> Result<DeleteAgentResponse, BackendError> {
         self.agent.delete(request).map_err(BackendError::from)
+    }
+
+    // =============================================================================
+    // spec
+    // =============================================================================
+
+    /// Lists the specs discoverable in the workspace a request scopes itself to.
+    pub fn list_specs(&self, request: ListSpecsRequest) -> Result<ListSpecsResponse, BackendError> {
+        self.spec.list(request).map_err(BackendError::from)
+    }
+
+    /// Reads one discovered spec together with its markdown body.
+    pub fn read_spec(&self, request: ReadSpecRequest) -> Result<ReadSpecResponse, BackendError> {
+        self.spec.read(request).map_err(BackendError::from)
     }
 
     // =============================================================================

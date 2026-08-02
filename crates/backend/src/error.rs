@@ -155,6 +155,16 @@ impl From<ApplicationError> for BackendError {
                 PublicError::SessionNotFound(EmptyErrorParams {}),
                 "session not found",
             ),
+            ApplicationError::SpecWorkspaceUnavailable { .. } => (
+                ErrorClassification::InvalidRequest,
+                PublicError::SpecWorkspaceUnavailable(EmptyErrorParams {}),
+                "spec workspace is unavailable",
+            ),
+            ApplicationError::SpecNotFound { .. } => (
+                ErrorClassification::NotFound,
+                PublicError::SpecNotFound(EmptyErrorParams {}),
+                "spec not found",
+            ),
             ApplicationError::SkillRepository { .. }
             | ApplicationError::AgentDefinitionRepository { .. }
             | ApplicationError::ProjectRepository { .. }

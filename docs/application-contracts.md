@@ -5,7 +5,7 @@ The public application surface is split across `ora-domain`, `ora-contracts`, `o
 ## Ownership
 
 - `ora-domain` owns schema-backed entities, identifier newtypes, and categorical enums. See [Domain Models](domain-models.md).
-- `ora-contracts` owns serialization-friendly request, response, stream-event, and public-error DTOs for Project, Task, Session, Skill, Agent, and Git identity operations, plus the Web-only project work context and filesystem operations.
+- `ora-contracts` owns serialization-friendly request, response, stream-event, and public-error DTOs for Project, Task, Session, Skill, Agent, Spec, and Git identity operations, plus the Web-only project work context and filesystem operations.
 - `ora-contracts` keeps Rust field names idiomatic while serializing JSON payloads in `camelCase` for adapter and frontend consumption.
 - `ora-contracts` also owns the frontend endpoint manifest for the exported HTTP surface, including operation names, client namespaces, methods, path templates, path and query parameters, request and response types, JSON body behavior, and unary-versus-stream response mode.
 - `ora-contracts` exports TypeScript DTOs into `packages/contracts/src` so frontend packages consume the contract surface from `@ora/contracts` and the browser transport from `@ora/contracts/fetch`. See [Frontend Contract SDK](frontend-contract-sdk.md).
@@ -24,6 +24,8 @@ Contracts are the app-facing protocol, not a projection of the domain. Each enti
 - `Session`: `id`, `taskId`, `agentCli`, `status`
 - `Skill` and `Agent`: `id`, `name`, `description`
 - `ProjectWorkContext`: `id`, `surface`, `windowId`, `projectId`, `leaseExpiresAt`
+- `SpecDocument`: `id`, `sourceName`, `path`, `title`
+- `SpecSource`: `name`, `glob`
 
 Public payloads expose documented business fields only. `createdAt`, `updatedAt`, `isDeleted`, and other internal audit fields never appear. Two exclusions are deliberate:
 
@@ -54,6 +56,7 @@ The handler set is intentionally narrower than full CRUD per entity, because som
 | `skill` | create, get, list, update, delete |
 | `agent_definition` | create, get, list, update, delete |
 | `project_work_context` | open, renew |
+| `spec` | list, read |
 | `worktree` | none — ports only |
 
 Notable consequences:
@@ -61,6 +64,7 @@ Notable consequences:
 - There is no delete handler for `project` or `task`. Aggregate deletion is a transactional cascade owned by `ora-backend` and `ora-db`, because it has to reject running descendants and update several tables atomically.
 - Session creation, load, prompt, permission response, cancellation, and stop belong to the backend agent runtime, not to `ora-application`. The session module supplies only the persistence-facing reads and soft deletion.
 - `worktree` has no handlers or transport contracts at all. Worktree records are internal metadata coordinated by the task module.
+- `spec` reads repository files instead of the database. Its `SpecWorkspaceResolver` and `SpecCatalogReader` ports are implemented in `ora-backend` on top of the `ora-spec` crate, which owns glob discovery, frontmatter parsing, content hashing, and the filesystem watcher. Nothing about a spec is persisted, so the catalog is always rebuildable from disk, and `ListSpecsResponse` returns the configured sources so the frontend can recognize a spec an agent just wrote before the index has observed it.
 
 `project_id`, `task_id`, and `worktree_id` are treated as pass-through business identifiers. Create and update handlers do not perform extra cross-entity existence checks before delegating to their repositories; `OpenProjectWorkContextHandler` verifying the requested project is the one deliberate exception, because occupancy has to be evaluated against a real project.
 
