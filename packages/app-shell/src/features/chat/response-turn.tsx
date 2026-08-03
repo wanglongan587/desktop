@@ -1,7 +1,10 @@
 import { IconAlertTriangle, IconBan, IconInfoCircle } from "@tabler/icons-react";
 import { useTranslation } from "react-i18next";
 import type { ChatToolCall, ChatTurn, ChatTurnItem } from "@ora/chat";
+import type { ListSpecsResponse } from "@ora/contracts";
 import { OraMark } from "../../components/ora-mark";
+import { useSpecs } from "../../state/hooks/use-specs";
+import { resolveSpecToolCall } from "../spec/spec-card";
 import { ActivityGroup, type ActivityItem } from "./activity-group";
 import { MessageBubble } from "./message-bubble";
 import { PlanBlock } from "./plan-block";
@@ -34,7 +37,10 @@ interface ResponseTurnProps {
 /** Groups all agent activity for one prompt under a single assistant identity. */
 export function ResponseTurn({ turn, userName }: ResponseTurnProps) {
   const { t } = useTranslation();
-  const displayItems = groupExplorationActivity(groupAdjacentTools(turn.items));
+  const { data: specCatalog } = useSpecs();
+  // Spec writes must stay as their own cards: folding them into the generic
+  // "changes" summary hides the open-in-panel affordance the design promises.
+  const displayItems = groupExplorationActivity(groupAdjacentTools(turn.items, specCatalog));
   return (
     <section className="flex gap-3 py-3" aria-label={t("chat.assistantReplied")}>
       <OraMark size="sm" />
@@ -77,7 +83,10 @@ export function ResponseTurn({ turn, userName }: ResponseTurnProps) {
 }
 
 /** Groups adjacent tools by intent while preserving boundaries created by messages and plans. */
-function groupAdjacentTools(items: ChatTurnItem[]): ToolGroupedTurnItem[] {
+function groupAdjacentTools(
+  items: ChatTurnItem[],
+  specCatalog: ListSpecsResponse | undefined,
+): ToolGroupedTurnItem[] {
   const grouped: ToolGroupedTurnItem[] = [];
   let tools: ChatToolCall[] = [];
   let groupKind: ToolCallGroupKind | null = null;
@@ -92,6 +101,11 @@ function groupAdjacentTools(items: ChatTurnItem[]): ToolGroupedTurnItem[] {
   };
 
   for (const item of items) {
+    if (item.kind === "toolCall" && resolveSpecToolCall(item, specCatalog) !== null) {
+      flushTools();
+      grouped.push(item);
+      continue;
+    }
     const nextGroupKind = item.kind === "toolCall" ? toolCallGroupKind(item) : null;
     if (item.kind === "toolCall" && nextGroupKind !== null) {
       if (groupKind !== null && groupKind !== nextGroupKind) flushTools();

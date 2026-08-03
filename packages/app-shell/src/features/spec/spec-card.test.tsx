@@ -79,7 +79,7 @@ describe("spec tool calls", () => {
     renderToolCall(workspaceWithSources(), writeToolCall("/ora/openspec/changes/add-auth/proposal.md"));
 
     await screen.findByText("OpenSpec");
-    await user.click(screen.getByRole("button", { name: /proposal\.md/ }));
+    await user.click(screen.getByRole("button", { name: /打开 Spec：proposal\.md|Open Spec: proposal\.md/ }));
 
     await waitFor(() =>
       expect(useSpecPanelStore.getState()).toMatchObject({

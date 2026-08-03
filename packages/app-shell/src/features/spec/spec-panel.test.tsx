@@ -1,6 +1,6 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createChatStore } from "@ora/chat";
 import { TooltipProvider } from "@ora/ui";
 import type { Project } from "@ora/contracts";
@@ -50,7 +50,7 @@ function renderPanel(state: MockClientState) {
 
 beforeEach(() => {
   useWorkspaceSelectionStore.getState().clearSelection();
-  useSpecPanelStore.setState({ open: true, selectedPath: null });
+  useSpecPanelStore.setState({ open: true, selectedPath: null, panelWidth: 640 });
 });
 
 describe("SpecPanel", () => {
@@ -99,5 +99,36 @@ describe("SpecPanel", () => {
     await user.click(await screen.findByRole("button", { name: /收起 Spec 面板|Collapse the spec panel/ }));
 
     await waitFor(() => expect(useSpecPanelStore.getState().open).toBe(false));
+  });
+
+  it("collapses the list into a picker when the panel is narrow", async () => {
+    let resizeCallback: ResizeObserverCallback | undefined;
+    class NarrowResizeObserver implements ResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        resizeCallback = callback;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("ResizeObserver", NarrowResizeObserver);
+
+    useWorkspaceSelectionStore.getState().selectProject(PROJECT.id);
+    renderPanel(workspaceWithSpecs());
+    expect(await screen.findByText("Add auth")).not.toBeNull();
+
+    act(() => {
+      resizeCallback?.(
+        [{ contentRect: { width: 320 } } as ResizeObserverEntry],
+        {} as ResizeObserver,
+      );
+    });
+
+    expect(await screen.findByRole("combobox")).not.toBeNull();
+    expect(screen.queryByRole("heading", { name: /OpenSpec/ })).toBeNull();
+    vi.unstubAllGlobals();
   });
 });

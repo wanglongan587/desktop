@@ -18,6 +18,12 @@ describe("toWorkspaceRelativePath", () => {
     );
   });
 
+  it("tolerates drive-letter casing differences on Windows paths", () => {
+    expect(toWorkspaceRelativePath("d:\\ora\\docs\\specs\\design.md", "D:\\ora")).toBe(
+      "docs/specs/design.md",
+    );
+  });
+
   it("keeps an already-relative path unchanged", () => {
     expect(toWorkspaceRelativePath("docs/specs/design.md", "/ora")).toBe("docs/specs/design.md");
   });
@@ -28,6 +34,11 @@ describe("toWorkspaceRelativePath", () => {
 });
 
 describe("matchSpecSource", () => {
+  it("matches a root-level SPEC.md through a literal pattern", () => {
+    const sources: SpecSource[] = [{ name: "Workspace", glob: "SPEC.md" }, ...SOURCES];
+    expect(matchSpecSource("/ora/SPEC.md", "/ora", sources)).toEqual(sources[0]);
+  });
+
   it("matches nested paths through a double-star segment", () => {
     expect(matchSpecSource("/ora/openspec/changes/add-auth/proposal.md", "/ora", SOURCES)).toEqual(
       SOURCES[0],

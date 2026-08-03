@@ -21,7 +21,7 @@ import { ChatStoreContext } from "./chat-store-context";
 import { WorkspaceSidebar } from "./features/workspace/workspace-sidebar";
 import { WorkspaceView } from "./features/workspace/workspace-view";
 import { WorkspaceDialogs } from "./features/workspace/workspace-dialogs";
-import { SpecPanel } from "./features/spec/spec-panel";
+import { SpecPanelFrame } from "./features/spec/spec-panel-frame";
 import { SettingsDialog } from "./features/settings/settings-dialog";
 import { AppI18nProvider } from "./i18n/i18n";
 import type { CurrentUser } from "./lib/types";
@@ -29,7 +29,6 @@ import { createAppQueryClient } from "./state/query-client";
 import { useGitIdentityUser } from "./state/hooks/use-git-identity";
 import { useSessionUnreadSync } from "./state/hooks/use-session-unread-sync";
 import { useUiStore } from "./state/stores/ui-store";
-import { useSpecPanelStore } from "./state/stores/spec-panel-store";
 import { startThemeSubscription } from "./state/stores/settings-store";
 import { useTranslation } from "react-i18next";
 
@@ -44,9 +43,6 @@ const DEFAULT_SIDEBAR_WIDTH = 320;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
 const MIN_WORKSPACE_WIDTH = 480;
-const DEFAULT_SPEC_PANEL_WIDTH = 520;
-const MIN_SPEC_PANEL_WIDTH = 360;
-const MAX_SPEC_PANEL_WIDTH = 900;
 
 /** The main Ora application shell: sidebar + chat view with conversation state. */
 export function AppShell({ client, chatStore, platform, user }: AppShellProps) {
@@ -74,10 +70,8 @@ function AppShellContent({ client, chatStore, platform, user: injectedUser }: Ap
   const user = injectedUser ?? gitIdentityUser;
 
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
-  const specPanelOpen = useSpecPanelStore((s) => s.open);
   const { i18n, t } = useTranslation();
   const sidebarPanelRef = useRef<ResizablePanelHandle | null>(null);
-  const specPanelRef = useRef<ResizablePanelHandle | null>(null);
   const locale: PlatformLocale = i18n.resolvedLanguage === "en-US" ? "en-US" : "zh-CN";
 
   const handleSignOut = () => {
@@ -97,57 +91,40 @@ function AppShellContent({ client, chatStore, platform, user: injectedUser }: Ap
               {t("common.skipToContent")}
             </a>
             <div className="flex h-dvh overflow-hidden bg-background text-foreground">
-              {sidebarCollapsed && !specPanelOpen ? (
-                <WorkspaceView userName={user.name} />
-              ) : (
-                <ResizablePanelGroup orientation="horizontal">
-                  {!sidebarCollapsed && (
-                    <>
-                      <ResizablePanel
-                        id="workspace-sidebar"
-                        panelRef={sidebarPanelRef}
-                        defaultSize={DEFAULT_SIDEBAR_WIDTH}
-                        minSize={MIN_SIDEBAR_WIDTH}
-                        maxSize={MAX_SIDEBAR_WIDTH}
-                        groupResizeBehavior="preserve-pixel-size"
-                      >
-                        <WorkspaceSidebar user={user} onSignOut={handleSignOut} />
-                      </ResizablePanel>
-                      <ResizableHandle
-                        withHandle
-                        aria-label={t("sidebar.resize")}
-                        title={t("sidebar.resize")}
-                        className="z-20 bg-sidebar-border transition-colors hover:bg-ring focus-visible:bg-ring"
-                        onDoubleClick={() => sidebarPanelRef.current?.resize(DEFAULT_SIDEBAR_WIDTH)}
-                      />
-                    </>
-                  )}
-                  <ResizablePanel id="workspace-content" minSize={MIN_WORKSPACE_WIDTH}>
-                    <WorkspaceView userName={user.name} />
-                  </ResizablePanel>
-                  {specPanelOpen && (
-                    <>
-                      <ResizableHandle
-                        withHandle
-                        aria-label={t("spec.resize")}
-                        title={t("spec.resize")}
-                        className="z-20 bg-sidebar-border transition-colors hover:bg-ring focus-visible:bg-ring"
-                        onDoubleClick={() => specPanelRef.current?.resize(DEFAULT_SPEC_PANEL_WIDTH)}
-                      />
-                      <ResizablePanel
-                        id="spec-panel"
-                        panelRef={specPanelRef}
-                        defaultSize={DEFAULT_SPEC_PANEL_WIDTH}
-                        minSize={MIN_SPEC_PANEL_WIDTH}
-                        maxSize={MAX_SPEC_PANEL_WIDTH}
-                        groupResizeBehavior="preserve-pixel-size"
-                      >
-                        <SpecPanel />
-                      </ResizablePanel>
-                    </>
-                  )}
-                </ResizablePanelGroup>
-              )}
+              <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                {sidebarCollapsed ? (
+                  <WorkspaceView userName={user.name} />
+                ) : (
+                  <ResizablePanelGroup orientation="horizontal">
+                    <ResizablePanel
+                      id="workspace-sidebar"
+                      panelRef={sidebarPanelRef}
+                      defaultSize={DEFAULT_SIDEBAR_WIDTH}
+                      minSize={MIN_SIDEBAR_WIDTH}
+                      maxSize={MAX_SIDEBAR_WIDTH}
+                      groupResizeBehavior="preserve-pixel-size"
+                    >
+                      <WorkspaceSidebar user={user} onSignOut={handleSignOut} />
+                    </ResizablePanel>
+                    <ResizableHandle
+                      withHandle
+                      aria-label={t("sidebar.resize")}
+                      title={t("sidebar.resize")}
+                      className="z-20 bg-sidebar-border transition-colors hover:bg-ring focus-visible:bg-ring"
+                      onDoubleClick={() => sidebarPanelRef.current?.resize(DEFAULT_SIDEBAR_WIDTH)}
+                    />
+                    <ResizablePanel id="workspace-content" minSize={MIN_WORKSPACE_WIDTH}>
+                      <WorkspaceView userName={user.name} />
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
+                )}
+              </div>
+              {/*
+                Spec lives outside the left ResizablePanelGroup so open/close can
+                animate width without fighting drag-resize flex transitions, matching
+                Codex-style secondary sidebars.
+              */}
+              <SpecPanelFrame />
               <SettingsDialog />
               {/* Mounted here, not in the sidebar, so collapsing the sidebar does
                   not take the workspace dialogs down with it. */}

@@ -17,6 +17,12 @@ export default defineConfig({
   },
   server: {
     host: "0.0.0.0",
+    // Exclude Rust build output from the Vite file watcher. On Windows, cargo
+    // locks build-script binaries under target/debug/build while compiling, so
+    // watching those paths makes Vite crash with EBUSY during `tauri dev`.
+    watch: {
+      ignored: ["**/target/**", "**/.data/**", "**/.cache/**"],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:21688",

@@ -10,7 +10,8 @@ workspace.
 - Walk a workspace root, attribute files to sources by glob, and build one catalog entry
   per document with its identity, title and content fingerprint.
 - Keep the catalog fresh by watching only the directories that configured patterns can
-  reach, debouncing bursts, and rescanning when the watcher reports activity.
+  reach (recursive for directory globs, non-recursive for root-level file patterns such
+  as `SPEC.md`), debouncing bursts, and rescanning when the watcher reports activity.
 - Serve the raw markdown of a catalogued document.
 
 ## Non-responsibilities
@@ -19,7 +20,9 @@ workspace.
 - No editing. Documents are modified by agents or external editors, never by this crate.
 - No provenance or drift detection. This crate produces the content fingerprints that a
   later drift-detection layer will compare, but performs no comparison itself.
-- No general-purpose file watching. Only configured spec directories are observed.
+- No general-purpose file watching. Observation is limited to the watch targets implied by
+  configured SpecSource patterns (recursive directory prefixes, or a non-recursive parent
+  directory for a literal root file such as `SPEC.md`).
 
 ## Public boundary
 
@@ -46,6 +49,13 @@ Domain types (`SpecDocument`, `SpecSource`, `SpecPath`, `SpecIdentity`,
 - **Reads are whitelisted by the catalog.** `read_document` resolves its argument against
   indexed documents before touching the filesystem, so a path outside the configured
   sources is rejected without a read rather than filtered afterwards.
+
+## Default sources
+
+When `.ora/specs.toml` is absent, the crate uses built-in presets: root `SPEC.md`,
+`openspec/changes/**/*.md`, `docs/superpowers/specs/**/*.md`, and `docs/specs/**/*.md`.
+A present configuration file replaces those presets; per-user extras are appended after
+whichever base was selected.
 
 ## Lifecycle
 

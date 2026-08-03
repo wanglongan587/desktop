@@ -9,7 +9,7 @@ This module implements the transport-independent use cases for browsing the spec
 - Sources are returned even when a workspace has no documents, because the chat surface matches freshly written paths against their globs before the catalog has observed the write.
 - Workspace and catalog failures are translated into stable `ApplicationError` variants.
 
-`SpecWorkspaceResolver` and `SpecCatalogReader` isolate workspace resolution and discovery from the handlers, so both use cases are testable without a filesystem. Discovery itself — glob matching, frontmatter parsing, content hashing, and watching — belongs to `ora-spec`, and the scope decision (project root versus a task's own worktree) belongs to the resolver implementation in `ora-backend`.
+`SpecWorkspaceResolver` and `SpecCatalogReader` isolate workspace resolution and discovery from the handlers, so both use cases are testable without a filesystem. Discovery itself — glob matching, frontmatter parsing, content hashing, and watching — belongs to `ora-spec`, and the scope decision (project root versus a task's own worktree) belongs to the resolver implementation in `ora-backend`. Selecting only a project therefore never surfaces specs that exist only under a linked worktree; the caller must target that task.
 
 Nothing in this module writes specs or persists anything about them. The repository files remain the single source of truth, and the catalog is always rebuildable from disk.
 

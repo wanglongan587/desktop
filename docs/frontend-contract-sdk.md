@@ -34,7 +34,7 @@ Both carry a do-not-edit header. Everything else in the package — `client.ts`,
 
 `createContractsClient(transport)` returns a namespaced client whose shape is derived from the generated manifest: `ContractsClient` maps each endpoint's `namespace`/`memberName` pair into a nested object type. Because `createContractsClient` returns an object literal checked against that derived type, adding a route in Rust and regenerating without updating `client.ts` fails `tsc` with a missing-property error. The hand-written client stays in compile-time lockstep with Rust.
 
-Namespaces are `project`, `projectWorkContext`, `task`, `session`, `agentRuntime`, `skill`, `agent`, `fileSystem`, `spec`, and `gitIdentity`.
+Namespaces are `project`, `projectWorkContext`, `task`, `session`, `agentRuntime`, `skill`, `agent`, `fileSystem`, `spec`, and `gitIdentity`. The `spec` namespace exposes `list` and `read` against repository files (not the database); responses include discovery sources so the chat surface can match an agent write path to a SpecSource glob before the catalog observes the file.
 
 For each call the client builds the URL from the endpoint's path parameters, appends declared query parameters, serializes the remaining fields as a JSON body when `hasJsonBody` is set, and then delegates execution to the injected transport. It hard-codes no runtime: the same client works in a browser, in Tauri, or in a test.
 

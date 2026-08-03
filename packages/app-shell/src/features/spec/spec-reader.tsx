@@ -41,11 +41,11 @@ export function SpecReader({ path }: SpecReaderProps) {
   }
 
   return (
-    <article className="px-6 py-5">
+    <article className="min-w-0 max-w-full px-4 py-5 sm:px-6">
       <p data-selectable className="mb-4 truncate font-mono text-[11px] text-muted-foreground" title={data.spec.path}>
         {data.spec.path}
       </p>
-      <MarkdownView content={data.content} />
+      <MarkdownView content={data.content} className="max-w-full" />
     </article>
   );
 }

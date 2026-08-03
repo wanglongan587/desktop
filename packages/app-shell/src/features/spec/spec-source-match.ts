@@ -66,8 +66,16 @@ function globMatcher(glob: string): RegExp {
 export function toWorkspaceRelativePath(path: string, workspaceRoot: string): string | null {
   const normalizedPath = normalizeSeparators(path);
   const normalizedRoot = normalizeSeparators(workspaceRoot).replace(/\/+$/, "");
-  if (normalizedRoot !== "" && normalizedPath.startsWith(`${normalizedRoot}/`)) {
-    return normalizedPath.slice(normalizedRoot.length + 1);
+  if (normalizedRoot !== "") {
+    const prefix = `${normalizedRoot}/`;
+    // Windows agents report drive letters with arbitrary casing; a case-sensitive
+    // prefix check would drop Spec cards for the same file the catalog already saw.
+    if (
+      normalizedPath.startsWith(prefix) ||
+      normalizedPath.toLowerCase().startsWith(prefix.toLowerCase())
+    ) {
+      return normalizedPath.slice(normalizedRoot.length + 1);
+    }
   }
   // A path that is already relative has no root prefix to strip, but an absolute
   // path under a different root must not be treated as one.

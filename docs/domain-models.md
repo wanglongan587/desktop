@@ -21,7 +21,7 @@ Every table owned by the migration catalog in `ora-db` has a first-class domain 
 
 `VirtualFolder`, `VirtualEntry`, and `Artifact` are declared by the schema and modeled in the domain layer, but no application handler or repository exposes them yet.
 
-Spec documents are the one modeled concept with no backing table. `SpecDocument`, `SpecSource`, `SpecPath`, `SpecContentHash`, and `SpecIdentity` describe files that live in the repository, so the catalog is rebuilt from disk rather than persisted: storing it could only ever disagree with the working tree. `SpecIdentity` distinguishes an identifier the document declared in its frontmatter from one derived from its path, and `SpecContentHash` fingerprints the body so freshness never depends on a modification timestamp.
+Spec documents are the one modeled concept with no backing table. `SpecDocument`, `SpecSource`, `SpecPath`, `SpecContentHash`, and `SpecIdentity` describe files that live in the repository, so the catalog is rebuilt from disk rather than persisted: storing it could only ever disagree with the working tree. `SpecIdentity` distinguishes an identifier the document declared in its frontmatter from one derived from its path, and `SpecContentHash` fingerprints the body so freshness never depends on a modification timestamp. `SpecSource` is a named discovery glob; overlapping matches resolve to the first source in configuration order.
 
 Depending on `ora-domain` is enough to construct and inspect these models; no transport or persistence module needs to be imported.
 

@@ -1,8 +1,9 @@
 use crate::error::SpecError;
+use crate::scanner::WatchTarget;
 use notify::RecursiveMode;
 use notify_debouncer_full::{DebounceEventResult, Debouncer, RecommendedCache, new_debouncer};
 use ora_logging::ora_debug;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
@@ -46,12 +47,13 @@ pub(crate) struct SpecWatcher {
 }
 
 impl SpecWatcher {
-    /// Starts watching every existing root, ignoring roots that do not exist yet.
+    /// Starts watching every existing target, ignoring directories that do not exist yet.
     ///
     /// Absent roots are expected rather than exceptional: a workspace may have adopted
-    /// only one of the configured spec tools. The workspace root is watched as a fallback
-    /// so that later creation of a missing root is still observed.
-    pub(crate) fn start(workspace_root: &Path, roots: &[PathBuf]) -> Result<Self, SpecError> {
+    /// only one of the configured spec tools. The workspace root is watched
+    /// non-recursively as a fallback so that later creation of a missing root-level
+    /// file (or directory) is still observed without walking the whole tree.
+    pub(crate) fn start(workspace_root: &Path, targets: &[WatchTarget]) -> Result<Self, SpecError> {
         let signal = Arc::new(ChangeSignal::default());
         let notify_signal = Arc::clone(&signal);
         let mut debouncer = new_debouncer(
@@ -74,15 +76,23 @@ impl SpecWatcher {
         })?;
 
         let mut watched_any = false;
-        for root in roots {
-            if root.is_dir() && debouncer.watch(root, RecursiveMode::Recursive).is_ok() {
+        for target in targets {
+            let path = target.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let mode = match target {
+                WatchTarget::Recursive(_) => RecursiveMode::Recursive,
+                WatchTarget::NonRecursive(_) => RecursiveMode::NonRecursive,
+            };
+            if debouncer.watch(path, mode).is_ok() {
                 watched_any = true;
             }
         }
 
         if !watched_any {
             debouncer
-                .watch(workspace_root, RecursiveMode::Recursive)
+                .watch(workspace_root, RecursiveMode::NonRecursive)
                 .map_err(|source| SpecError::WatchFailed {
                     path: workspace_root.to_path_buf(),
                     source,
@@ -104,6 +114,7 @@ impl SpecWatcher {
 #[cfg(test)]
 mod tests {
     use super::{DEBOUNCE_INTERVAL, SpecWatcher};
+    use crate::scanner::WatchTarget;
     use pretty_assertions::assert_eq;
     use std::fs;
     use std::thread::sleep;
@@ -116,7 +127,8 @@ mod tests {
         let workspace = TempDir::new().unwrap_or_else(|error| panic!("temp dir: {error}"));
         let watched = workspace.path().join("docs").join("specs");
         fs::create_dir_all(&watched).unwrap_or_else(|error| panic!("create dirs: {error}"));
-        let watcher = SpecWatcher::start(workspace.path(), std::slice::from_ref(&watched))
+        let target = WatchTarget::Recursive(watched.clone());
+        let watcher = SpecWatcher::start(workspace.path(), std::slice::from_ref(&target))
             .unwrap_or_else(|error| panic!("start watcher: {error}"));
         let signal = watcher.signal();
         let before = signal.generation();
@@ -131,9 +143,25 @@ mod tests {
     #[test]
     fn falls_back_to_the_workspace_root() {
         let workspace = TempDir::new().unwrap_or_else(|error| panic!("temp dir: {error}"));
-        let missing = workspace.path().join("openspec").join("changes");
+        let missing = WatchTarget::Recursive(workspace.path().join("openspec").join("changes"));
 
         assert!(SpecWatcher::start(workspace.path(), &[missing]).is_ok());
+    }
+
+    /// Verifies a non-recursive root watch observes a root-level SPEC.md write.
+    #[test]
+    fn reports_root_level_spec_writes() {
+        let workspace = TempDir::new().unwrap_or_else(|error| panic!("temp dir: {error}"));
+        let target = WatchTarget::NonRecursive(workspace.path().to_path_buf());
+        let watcher = SpecWatcher::start(workspace.path(), std::slice::from_ref(&target))
+            .unwrap_or_else(|error| panic!("start watcher: {error}"));
+        let signal = watcher.signal();
+        let before = signal.generation();
+
+        fs::write(workspace.path().join("SPEC.md"), "# Brief\n")
+            .unwrap_or_else(|error| panic!("write spec: {error}"));
+
+        assert_eq!(wait_for_change(&signal, before), true);
     }
 
     /// Blocks until the generation advances or a bounded deadline elapses.

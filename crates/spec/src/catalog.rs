@@ -1,5 +1,5 @@
 use crate::error::SpecError;
-use crate::scanner::{scan_workspace, watch_roots};
+use crate::scanner::{scan_workspace, watch_targets};
 use crate::source::load_spec_sources;
 use crate::watcher::{ChangeSignal, SpecWatcher};
 use ora_domain::{SpecDocument, SpecSource};
@@ -110,7 +110,8 @@ impl SpecCatalog {
     /// Indexes a workspace from scratch and starts watching its spec directories.
     fn index(&self, workspace_root: PathBuf) -> Result<ActiveWorkspace, SpecError> {
         let sources = load_spec_sources(&workspace_root, &self.extra_sources)?;
-        let watcher = SpecWatcher::start(&workspace_root, &watch_roots(&workspace_root, &sources))?;
+        let watcher =
+            SpecWatcher::start(&workspace_root, &watch_targets(&workspace_root, &sources))?;
         let signal = watcher.signal();
         // Reading the generation before scanning means a change racing with this scan is
         // observed as pending rather than silently swallowed.

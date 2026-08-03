@@ -1,9 +1,12 @@
 import { useTranslation } from "react-i18next";
 import { IconFileText } from "@tabler/icons-react";
 import type { ChatToolCall } from "@ora/chat";
-import type { SpecSource } from "@ora/contracts";
+import type { ListSpecsResponse, SpecSource } from "@ora/contracts";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSpecs } from "../../state/hooks/use-specs";
+import { queryKeys } from "../../state/hooks/query-keys";
 import { useSpecPanelStore } from "../../state/stores/spec-panel-store";
+import { useWorkspaceSelectionStore } from "../../state/stores/workspace-selection-store";
 import { matchSpecSource, toWorkspaceRelativePath } from "./spec-source-match";
 import { ToolStatus } from "../chat/tool-status";
 
@@ -18,19 +21,38 @@ interface SpecCardProps {
  *
  * Matching happens against the catalog's own source globs rather than a hardcoded
  * list of directories, so a repository that configured its own layout gets the same
+ * treatment as one on the presets. Pure so the chat turn can also keep Spec writes
+ * out of the generic "changes" compression group before they reach this card.
+ */
+export function resolveSpecToolCall(
+  tool: ChatToolCall,
+  catalog: ListSpecsResponse | undefined,
+): { sourceName: string; path: string } | null {
+  const writesFile = tool.toolKind === "edit";
+  const location = tool.locations.at(-1);
+  if (!writesFile || location === undefined || catalog === undefined) return null;
+
+  const source: SpecSource | null = matchSpecSource(
+    location.path,
+    catalog.workspaceRoot,
+    catalog.sources,
+  );
+  if (source === null) return null;
+  const relativePath = toWorkspaceRelativePath(location.path, catalog.workspaceRoot);
+  return relativePath === null ? null : { sourceName: source.name, path: relativePath };
+}
+
+/**
+ * Decides whether a tool call wrote a spec, and to which source it belongs.
+ *
+ * Matching happens against the catalog's own source globs rather than a hardcoded
+ * list of directories, so a repository that configured its own layout gets the same
  * treatment as one on the presets. The check runs on the tool call itself because
  * the backend index has not observed the write yet at the moment it is rendered.
  */
 export function useSpecToolCall(tool: ChatToolCall): { sourceName: string; path: string } | null {
   const { data } = useSpecs();
-  const writesFile = tool.toolKind === "edit";
-  const location = tool.locations.at(-1);
-  if (!writesFile || location === undefined || data === undefined) return null;
-
-  const source: SpecSource | null = matchSpecSource(location.path, data.workspaceRoot, data.sources);
-  if (source === null) return null;
-  const relativePath = toWorkspaceRelativePath(location.path, data.workspaceRoot);
-  return relativePath === null ? null : { sourceName: source.name, path: relativePath };
+  return resolveSpecToolCall(tool, data);
 }
 
 /**
@@ -42,12 +64,25 @@ export function useSpecToolCall(tool: ChatToolCall): { sourceName: string; path:
 export function SpecCard({ tool, sourceName, path }: SpecCardProps) {
   const { t } = useTranslation();
   const revealSpec = useSpecPanelStore((state) => state.revealSpec);
+  const projectId = useWorkspaceSelectionStore((state) => state.selection.projectId);
+  const taskId = useWorkspaceSelectionStore((state) => state.selection.taskId);
+  const queryClient = useQueryClient();
   const fileName = path.split("/").at(-1) ?? path;
+
+  const openSpec = () => {
+    revealSpec(path);
+    // The card appears from the tool-call stream before the watcher has indexed the
+    // write; refresh the catalog as soon as the user asks to read it.
+    if (projectId !== null) {
+      void queryClient.invalidateQueries({ queryKey: queryKeys.specs(projectId, taskId) });
+    }
+  };
 
   return (
     <button
       type="button"
-      onClick={() => revealSpec(path)}
+      onClick={openSpec}
+      aria-label={t("spec.openCard", { name: fileName })}
       className="flex w-full items-center gap-2 rounded-r-sm border-l-2 border-violet-500/60 bg-muted/25 px-3 py-2 text-left text-xs outline-none transition-colors hover:bg-muted/45 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/50"
       title={path}
     >

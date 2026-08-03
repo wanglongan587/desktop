@@ -6,6 +6,26 @@ use ora_logging::ora_debug;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+/// One filesystem location the catalog must observe for Spec changes.
+///
+/// Directory-scoped patterns use recursive watches. Fully literal file patterns such as
+/// root `SPEC.md` use a non-recursive watch on their parent, so creating that file is
+/// observed without attaching a recursive watch to the entire workspace.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum WatchTarget {
+    Recursive(PathBuf),
+    NonRecursive(PathBuf),
+}
+
+impl WatchTarget {
+    /// Returns the directory path that should be registered with the watcher.
+    pub(crate) fn path(&self) -> &Path {
+        match self {
+            Self::Recursive(path) | Self::NonRecursive(path) => path,
+        }
+    }
+}
+
 /// Bounds a single scan so a misconfigured pattern cannot walk an entire drive.
 const MAX_SCANNED_ENTRIES: usize = 20_000;
 
@@ -63,32 +83,59 @@ pub(crate) fn scan_workspace(
     Ok(documents)
 }
 
-/// Returns the directories that must be watched to observe changes to the given sources.
+/// Returns the watch targets needed to observe changes for the given sources.
 ///
-/// Watching the literal prefix of each pattern keeps the watcher scoped to the few
-/// directories that can contain specs, instead of the whole workspace.
-pub(crate) fn watch_roots(workspace_root: &Path, sources: &[SpecSource]) -> Vec<PathBuf> {
-    let mut roots = BTreeSet::new();
+/// Directory-scoped patterns contribute recursive watches on their literal prefix.
+/// Fully literal file patterns contribute a non-recursive watch on the parent
+/// directory, which is enough to see that one file appear or change.
+pub(crate) fn watch_targets(workspace_root: &Path, sources: &[SpecSource]) -> Vec<WatchTarget> {
+    let mut targets = BTreeSet::new();
 
     for source in sources {
-        let literal_prefix = source
-            .glob
-            .split('/')
-            .take_while(|segment| !segment.contains(['*', '?', '[', '{']))
-            .fold(PathBuf::new(), |path, segment| path.join(segment));
-        roots.insert(workspace_root.join(literal_prefix));
+        targets.insert(watch_target_for_glob(workspace_root, &source.glob));
     }
 
-    // A watched ancestor already reports its descendants, so nested roots are redundant.
-    roots
+    // A recursive ancestor already reports its descendants. Non-recursive watches do
+    // not, so they must not suppress a nested recursive target.
+    let recursive_paths: Vec<PathBuf> = targets
         .iter()
-        .filter(|root| {
-            !roots
-                .iter()
-                .any(|other| other != *root && root.starts_with(other))
+        .filter_map(|target| match target {
+            WatchTarget::Recursive(path) => Some(path.clone()),
+            WatchTarget::NonRecursive(_) => None,
         })
-        .cloned()
+        .collect();
+
+    targets
+        .into_iter()
+        .filter(|target| match target {
+            WatchTarget::Recursive(path) => !recursive_paths
+                .iter()
+                .any(|other| other != path && path.starts_with(other)),
+            WatchTarget::NonRecursive(_) => true,
+        })
         .collect()
+}
+
+/// Derives the watch target that covers one discovery pattern.
+fn watch_target_for_glob(workspace_root: &Path, glob: &str) -> WatchTarget {
+    let segments: Vec<&str> = glob.split('/').collect();
+    let literal_count = segments
+        .iter()
+        .take_while(|segment| !segment.contains(['*', '?', '[', '{']))
+        .count();
+    let literal_prefix = segments[..literal_count]
+        .iter()
+        .fold(PathBuf::new(), |path, segment| path.join(segment));
+
+    if literal_count == segments.len() {
+        let parent = match literal_prefix.parent() {
+            Some(parent) if !parent.as_os_str().is_empty() => workspace_root.join(parent),
+            _ => workspace_root.to_path_buf(),
+        };
+        return WatchTarget::NonRecursive(parent);
+    }
+
+    WatchTarget::Recursive(workspace_root.join(literal_prefix))
 }
 
 /// Compiles each configured pattern once so scanning does not re-parse globs per file.
@@ -156,7 +203,7 @@ fn collect_candidate_files(workspace_root: &Path, visited: &mut usize) -> Vec<Pa
 
 #[cfg(test)]
 mod tests {
-    use super::{scan_workspace, watch_roots};
+    use super::{WatchTarget, scan_workspace, watch_targets};
     use ora_domain::{SpecIdentity, SpecSource};
     use pretty_assertions::assert_eq;
     use std::fs;
@@ -257,20 +304,48 @@ mod tests {
 
     /// Verifies watching targets each pattern's literal prefix and drops nested duplicates.
     #[test]
-    fn derives_minimal_watch_roots() {
+    fn derives_minimal_watch_targets() {
         let workspace = Path::new("/workspace/ora");
         let sources = vec![
+            SpecSource::new("Workspace", "SPEC.md"),
             SpecSource::new("Docs", "docs/specs/**/*.md"),
             SpecSource::new("Nested", "docs/specs/nested/*.md"),
             SpecSource::new("OpenSpec", "openspec/changes/**/*.md"),
         ];
 
         assert_eq!(
-            watch_roots(workspace, &sources),
+            watch_targets(workspace, &sources),
             vec![
-                workspace.join("docs").join("specs"),
-                workspace.join("openspec").join("changes"),
+                WatchTarget::Recursive(workspace.join("docs").join("specs")),
+                WatchTarget::Recursive(workspace.join("openspec").join("changes")),
+                WatchTarget::NonRecursive(workspace.to_path_buf()),
             ]
+        );
+    }
+
+    /// Verifies a root-level SPEC.md is discovered by the default workspace preset.
+    #[test]
+    fn discovers_root_spec_markdown() {
+        let workspace = TempDir::new().unwrap_or_else(|error| panic!("temp dir: {error}"));
+        write_file(workspace.path(), "SPEC.md", "# Workspace brief\n");
+        let sources = vec![SpecSource::new("Workspace", "SPEC.md")];
+
+        let documents = scan_workspace(workspace.path(), &sources)
+            .unwrap_or_else(|error| panic!("scan: {error}"));
+
+        assert_eq!(
+            documents
+                .iter()
+                .map(|document| document.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["SPEC.md"]
+        );
+        assert_eq!(
+            documents
+                .iter()
+                .map(|document| document.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Workspace brief"]
         );
     }
 

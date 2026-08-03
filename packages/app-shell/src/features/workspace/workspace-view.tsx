@@ -37,6 +37,7 @@ import { ComposerContextBar } from "../chat/composer-context-bar";
 import { WorkflowStepper } from "../workflow/workflow-stepper";
 import { useWorkflowDetection } from "../workflow/use-workflow-detection";
 import type { ChatTurn } from "@ora/chat";
+import { SpecPanelToggle } from "../spec/spec-panel-toggle";
 import { LocationActionsButton } from "./location-actions-button";
 import { agentCliLabel } from "./agent-cli";
 
@@ -319,6 +320,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
               </div>
             )}
           </DragRegion>
+          <SpecPanelToggle />
           <LocationActionsButton
             taskId={task?.id}
             projectPath={project?.rootPath}
@@ -399,6 +401,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
             {t("workspace.overview")}
           </span>
         </DragRegion>
+        <SpecPanelToggle />
         <LocationActionsButton
           taskId={task?.id}
           projectPath={project?.rootPath}

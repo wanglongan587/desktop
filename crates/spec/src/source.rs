@@ -24,8 +24,11 @@ struct SourceConfigEntry {
 ///
 /// The presets cover the tools Ora already drives, so a repository that adopted OpenSpec
 /// or the superpowers workflow shows its existing documents without any configuration.
+/// A root `SPEC.md` is also recognized because agents commonly drop a single workspace
+/// brief there without adopting a fuller tooling layout.
 pub fn default_spec_sources() -> Vec<SpecSource> {
     vec![
+        SpecSource::new("Workspace", "SPEC.md"),
         SpecSource::new("OpenSpec", "openspec/changes/**/*.md"),
         SpecSource::new("Superpowers", "docs/superpowers/specs/**/*.md"),
         SpecSource::new("Docs", "docs/specs/**/*.md"),
