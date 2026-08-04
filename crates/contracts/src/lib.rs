@@ -10,6 +10,7 @@ mod project_work_context;
 mod session;
 mod skill;
 mod skill_import;
+mod spec;
 mod task;
 mod task_diff;
 
@@ -33,11 +34,12 @@ pub use file_system::{
 pub use frontend::{
     AGENT_MODELS_PATH, AGENT_PATH, AGENTS_PATH, FILE_SYSTEM_DIRECTORY_PATH, FrontendEndpoint,
     FrontendHttpMethod, FrontendPathParam, FrontendQueryParam, FrontendResponseMode,
-    GIT_IDENTITY_PATH, PROJECT_BRANCHES_PATH, PROJECT_PATH, PROJECT_WORK_CONTEXT_OPEN_PATH,
-    PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH, SESSION_LOAD_PATH, SESSION_PATH,
-    SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH, SESSION_RESUME_HISTORY_PATH,
-    SESSION_STOP_PATH, SESSION_SWITCH_AGENT_PATH, SESSIONS_PATH, SKILL_IMPORT_COMMIT_PATH,
-    SKILL_IMPORT_PATH, SKILL_IMPORTS_PATH, SKILL_PATH, SKILLS_PATH, TASK_COMMIT_PATH,
+    GIT_IDENTITY_PATH, PROJECT_BRANCHES_PATH, PROJECT_PATH, PROJECT_SPEC_SOURCES_PATH,
+    PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH,
+    SESSION_LOAD_PATH, SESSION_PATH, SESSION_PERMISSION_RESPONSE_PATH, SESSION_PROMPT_PATH,
+    SESSION_RESUME_HISTORY_PATH, SESSION_STOP_PATH, SESSION_SWITCH_AGENT_PATH, SESSIONS_PATH,
+    SKILL_IMPORT_COMMIT_PATH, SKILL_IMPORT_PATH, SKILL_IMPORTS_PATH, SKILL_PATH, SKILLS_PATH,
+    SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_RESOLVE_SOURCE_PATH, SPEC_WATCH_PATH, TASK_COMMIT_PATH,
     TASK_DIFF_COMMENT_REPLIES_PATH, TASK_DIFF_COMMENT_STATUS_PATH, TASK_DIFF_COMMENTS_PATH,
     TASK_DIFF_PATH, TASK_PATH, TASK_PUSH_PATH, TASK_WORKSPACE_PATH, TASKS_PATH,
     WORKSPACE_DIRECTORY_PATH, WORKSPACE_FILE_PATH, WORKSPACE_SEARCH_PATH, WORKSPACE_WATCH_PATH,
@@ -76,6 +78,13 @@ pub use skill_import::{
     SkillImportProgress, SkillImportResult, SkillImportResultStatus, SkillImportSession,
     SkillImportSessionStatus, SkillImportSource,
 };
+pub use spec::{
+    GetSpecCatalogRequest, ProjectSpecSourceOverride, ReadSpecRequest, ReadSpecResponse,
+    ResolveSpecSourceRequest, ResolveSpecSourceResponse, SpecCatalogResponse, SpecDocument,
+    SpecSource, SpecSourceAvailability, SpecSourceOrigin, SpecSourceVisibility, SpecTarget,
+    SpecWorkflow, UpdateProjectSpecSourcesRequest, UpdateProjectSpecSourcesResponse,
+    WatchSpecsEvent, WatchSpecsRequest,
+};
 use std::path::Path;
 pub use task::{
     CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse, GetTaskRequest,
@@ -112,6 +121,7 @@ pub fn export_typescript_bindings_to(
     session::export(&config)?;
     skill::export(&config)?;
     skill_import::export(&config)?;
+    spec::export(&config)?;
     task::export(&config)?;
     task_diff::export(&config)?;
 

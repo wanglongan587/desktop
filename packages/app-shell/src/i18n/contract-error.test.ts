@@ -11,7 +11,7 @@ describe("contract error translations", () => {
       const code = option.shape.code.value;
       const key = `errors.${code}` as keyof (typeof translationResources)["zh-CN"];
       const zh = translationResources["zh-CN"][key];
-      const en = translationResources["en-US"][key];
+      const en = translationResources["en-US"][key as keyof (typeof translationResources)["en-US"]];
       const paramsShape = (
         option.shape.params as unknown as {
           shape?: Record<string, unknown>;
@@ -36,7 +36,7 @@ describe("contract error translations", () => {
     for (const kind of localTransportErrorKinds) {
       const key = `errors.transport.${kind}` as keyof (typeof translationResources)["zh-CN"];
       expect(translationResources["zh-CN"][key]).toBeTypeOf("string");
-      expect(translationResources["en-US"][key]).toBeTypeOf("string");
+      expect(translationResources["en-US"][key as keyof (typeof translationResources)["en-US"]]).toBeTypeOf("string");
     }
   });
 });

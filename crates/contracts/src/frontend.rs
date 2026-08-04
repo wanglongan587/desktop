@@ -1,4 +1,12 @@
 use serde::Serialize;
+use std::sync::LazyLock;
+
+mod spec;
+
+pub use spec::{
+    PROJECT_SPEC_SOURCES_PATH, SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_RESOLVE_SOURCE_PATH,
+    SPEC_WATCH_PATH,
+};
 
 /// Enumerates the HTTP methods supported by the generated frontend SDK.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -65,7 +73,9 @@ impl FrontendEndpoint {
     /// Returns the transport mode explicitly owned by the Rust endpoint catalog.
     pub fn response_mode(&self) -> FrontendResponseMode {
         match self.operation_name {
-            "loadSession" | "promptSession" | "watchWorkspace" => FrontendResponseMode::Stream,
+            "loadSession" | "promptSession" | "watchWorkspace" | "watchSpecs" => {
+                FrontendResponseMode::Stream
+            }
             _ => FrontendResponseMode::Unary,
         }
     }
@@ -171,7 +181,7 @@ const FILE_SYSTEM_DIRECTORY_QUERY_PARAMS: &[FrontendQueryParam] =
 const TASK_DIFF_QUERY_PARAMS: &[FrontendQueryParam] = &[TASK_DIFF_SCOPE_QUERY_PARAM];
 const NO_QUERY_PARAMS: &[FrontendQueryParam] = &[];
 
-const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
+const CORE_FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
     // =============================================================================
     // project
     // =============================================================================
@@ -775,7 +785,15 @@ const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
 
 /// Returns the Rust-owned endpoint metadata exported to the generated frontend SDK.
 pub fn frontend_endpoints() -> &'static [FrontendEndpoint] {
-    FRONTEND_ENDPOINTS
+    static FRONTEND_ENDPOINTS: LazyLock<Vec<FrontendEndpoint>> = LazyLock::new(|| {
+        CORE_FRONTEND_ENDPOINTS
+            .iter()
+            .chain(spec::SPEC_ENDPOINTS)
+            .copied()
+            .collect()
+    });
+
+    &FRONTEND_ENDPOINTS
 }
 
 #[cfg(test)]
@@ -873,6 +891,37 @@ mod tests {
                 .iter()
                 .any(|endpoint| endpoint.operation_name == "updateAgent"
                     && endpoint.path_template == "/api/agents/{agentId}")
+        );
+    }
+
+    /// Verifies Spec operations remain transport-neutral and retain their unary/stream modes.
+    #[test]
+    fn exports_spec_endpoint_manifest() {
+        let spec_endpoints = frontend_endpoints()
+            .iter()
+            .filter(|endpoint| endpoint.namespace == "spec")
+            .collect::<Vec<_>>();
+
+        assert_eq!(spec_endpoints.len(), 5);
+        assert_eq!(
+            spec_endpoints
+                .iter()
+                .map(|endpoint| endpoint.operation_name)
+                .collect::<Vec<_>>(),
+            vec![
+                "getSpecCatalog",
+                "readSpec",
+                "resolveSpecSource",
+                "updateProjectSpecSources",
+                "watchSpecs",
+            ]
+        );
+        assert_eq!(
+            spec_endpoints
+                .last()
+                .expect("watch endpoint")
+                .response_mode(),
+            super::FrontendResponseMode::Stream
         );
     }
 }

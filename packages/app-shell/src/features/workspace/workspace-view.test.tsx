@@ -36,7 +36,7 @@ describe("WorkspaceView", () => {
       },
     ];
     state.sessions = [
-      { id: "s1", taskId: "t1", agentCli: "open_code", status: "running" },
+      { id: "s1", taskId: "t1", agentCli: "open_code", status: "running", historyState: { type: "writable" } },
     ];
     const client = createMockClient(state);
     const load = vi.fn(async function* () {
@@ -82,7 +82,7 @@ describe("WorkspaceView", () => {
       },
     ];
     state.sessions = [
-      { id: "s1", taskId: "t1", agentCli: "open_code", status: "running" },
+      { id: "s1", taskId: "t1", agentCli: "open_code", status: "running", historyState: { type: "writable" } },
     ];
     const client = createMockClient(state);
     const load = vi.fn(async function* () {
@@ -326,6 +326,7 @@ describe("WorkspaceView", () => {
           taskId: "t1",
           agentCli: "open_code",
           status: "running",
+          historyState: { type: "writable" },
         },
       ]);
       expect(calls).toEqual(["task", "session", "prompt"]);

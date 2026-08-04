@@ -4,6 +4,7 @@ mod project;
 mod project_work_context;
 mod repository_error;
 mod session;
+mod spec;
 mod task;
 mod task_diff;
 mod worktree;
@@ -41,6 +42,11 @@ pub use skill_import::{
     DuplicateSkillName, NoopSkillImportProgressPublisher, SkillImportConfig, SkillImportError,
     SkillImportIdGenerator, SkillImportProgressEvent, SkillImportProgressPublisher,
     SkillImportService, UuidSkillImportIdGenerator,
+};
+pub use spec::{
+    ListProjectSpecSourceOverridesHandler, ProjectSpecSourceOverrideIdGenerator,
+    ProjectSpecSourceOverrideRepository, UpdateProjectSpecSourcesHandler,
+    UuidProjectSpecSourceOverrideIdGenerator,
 };
 pub use task::{
     CreateTaskHandler, CreateTaskWorktreeRequest, CreateTaskWorktreeResponse,

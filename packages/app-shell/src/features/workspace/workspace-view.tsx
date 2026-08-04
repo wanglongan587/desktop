@@ -39,7 +39,7 @@ import { useWorkflowDetection } from "../workflow/use-workflow-detection";
 import type { ChatTurn } from "@ora/chat";
 import { LocationActionsButton } from "./location-actions-button";
 import { agentCliLabel } from "./agent-cli";
-import { TaskChangesLayout } from "../diff/task-changes-layout";
+import { WorkspaceReviewLayout, type WorkspaceReviewContext } from "./workspace-review-layout";
 import { useTaskDiffLiveSync } from "../../state/hooks/use-task-diff-live-sync";
 
 interface WorkspaceViewProps {
@@ -85,6 +85,11 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
   const project = projects.find((item) => item.id === selection.projectId);
   const task = tasks.find((item) => item.id === selection.taskId);
   const session = sessions.find((item) => item.id === selection.sessionId);
+  const reviewContext: WorkspaceReviewContext = task !== undefined && project !== undefined
+    ? { kind: "task", taskId: task.id, projectId: project.id, projectRootPath: project.rootPath }
+    : project !== undefined
+      ? { kind: "project", projectId: project.id, projectRootPath: project.rootPath }
+      : { kind: "none" };
   const conversation = useStore(chatStore, (state) =>
     selection.sessionId === null
       ? undefined
@@ -340,7 +345,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
           />
           <WindowControls />
         </div>
-        <TaskChangesLayout taskId={task?.id}>
+        <WorkspaceReviewLayout context={reviewContext}>
           <ChatView
             taskId={task?.id}
             turns={conversation?.turns ?? []}
@@ -389,7 +394,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
               }
             }}
           />
-        </TaskChangesLayout>
+        </WorkspaceReviewLayout>
       </main>
     );
   }
@@ -421,7 +426,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
         />
         <WindowControls />
       </header>
-      <TaskChangesLayout taskId={task?.id}>
+      <WorkspaceReviewLayout context={reviewContext}>
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
           <section className="w-full max-w-xl">
             <div className="mb-6 flex size-11 items-center justify-center rounded-lg border border-border bg-muted">
@@ -475,7 +480,7 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
             )}
           </section>
         </div>
-      </TaskChangesLayout>
+      </WorkspaceReviewLayout>
     </main>
   );
 }

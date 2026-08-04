@@ -56,6 +56,8 @@ export type ContractError =
       "code": "file_system_path_permission_denied";
       "params": EmptyErrorParams;
     }
+    | { "code": "spec_source_invalid"; "params": EmptyErrorParams }
+    | { "code": "spec_document_not_found"; "params": EmptyErrorParams }
     | { "code": "worktree_root_not_absolute"; "params": EmptyErrorParams }
     | { "code": "worktree_root_not_directory"; "params": EmptyErrorParams }
     | { "code": "open_location_failed"; "params": OpenLocationFailedParams }
@@ -167,6 +169,8 @@ export type PublicError =
   | { "code": "file_system_path_not_directory"; "params": EmptyErrorParams }
   | { "code": "file_system_path_not_found"; "params": EmptyErrorParams }
   | { "code": "file_system_path_permission_denied"; "params": EmptyErrorParams }
+  | { "code": "spec_source_invalid"; "params": EmptyErrorParams }
+  | { "code": "spec_document_not_found"; "params": EmptyErrorParams }
   | { "code": "worktree_root_not_absolute"; "params": EmptyErrorParams }
   | { "code": "worktree_root_not_directory"; "params": EmptyErrorParams }
   | { "code": "open_location_failed"; "params": OpenLocationFailedParams }

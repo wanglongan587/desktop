@@ -4,6 +4,30 @@ import { cleanup } from "@testing-library/react";
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
+});
+
+// Node 25 exposes an incomplete experimental `localStorage` when no
+// `--localstorage-file` is configured. Vitest can copy that object over jsdom's
+// implementation, so install a deterministic Storage implementation for tests.
+const storageEntries = new Map<string, string>();
+const testLocalStorage: Storage = {
+  get length() {
+    return storageEntries.size;
+  },
+  clear: () => storageEntries.clear(),
+  getItem: (key) => storageEntries.get(key) ?? null,
+  key: (index) => [...storageEntries.keys()][index] ?? null,
+  removeItem: (key) => {
+    storageEntries.delete(key);
+  },
+  setItem: (key, value) => {
+    storageEntries.set(key, String(value));
+  },
+};
+Object.defineProperty(window, "localStorage", {
+  configurable: true,
+  value: testLocalStorage,
 });
 
 // jsdom lacks matchMedia; settings theme subscription depends on it.
@@ -34,6 +58,11 @@ if (!globalThis.ResizeObserver) {
 // view whenever the selection changes.
 if (!Element.prototype.scrollIntoView) {
   Element.prototype.scrollIntoView = () => {};
+}
+
+// Base UI waits for active scroll animations before restoring positions.
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = () => [];
 }
 
 // crypto.randomUUID is used by mock-data; jsdom provides it in modern Node, but

@@ -7,6 +7,7 @@ mod project;
 mod project_work_context;
 mod session;
 mod skill;
+mod spec;
 mod task;
 mod task_diff_comment;
 mod virtual_entry;
@@ -21,8 +22,8 @@ pub use artifact::Artifact;
 pub use audit_fields::AuditFields;
 pub use error::DomainModelError;
 pub use ids::{
-    AgentDefinitionId, ArtifactId, ProjectId, ProjectWorkContextId, SessionId, SkillId,
-    TaskDiffCommentId, TaskId, VirtualEntryId, VirtualFolderId, WorktreeId,
+    AgentDefinitionId, ArtifactId, ProjectId, ProjectSpecSourceOverrideId, ProjectWorkContextId,
+    SessionId, SkillId, TaskDiffCommentId, TaskId, VirtualEntryId, VirtualFolderId, WorktreeId,
 };
 pub use project::Project;
 pub use project_work_context::{ProjectWorkContext, ProjectWorkContextSurface};
@@ -30,6 +31,7 @@ pub use session::{AgentCli, HistoryState, Session, SessionStatus};
 pub use skill::{
     Skill, SkillDescriptionError, SkillNameError, validate_skill_description, validate_skill_name,
 };
+pub use spec::{ProjectSpecSourceOverride, SpecSourceVisibility, SpecWorkflow};
 pub use task::{Task, TaskStatus};
 pub use task_diff_comment::{
     TaskDiffAnchor, TaskDiffComment, TaskDiffCommentKind, TaskDiffSide, TaskDiffThreadStatus,

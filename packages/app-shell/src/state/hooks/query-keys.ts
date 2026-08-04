@@ -26,6 +26,11 @@ export const queryKeys = {
     ["workspace-files", taskId, "file", path] as const,
   workspaceSearch: (taskId: string, kind: string, query: string) =>
     ["workspace-files", taskId, "search", kind, query] as const,
+  specs: (projectId: string) => ["specs", projectId] as const,
+  specCatalog: (projectId: string, targetKey: string) =>
+    ["specs", projectId, "catalog", targetKey] as const,
+  specDocument: (projectId: string, targetKey: string, path: string) =>
+    ["specs", projectId, "document", targetKey, path] as const,
 };
 
 export type WorkspaceQueryKey = readonly ["projects"] | readonly ["tasks"] | readonly ["sessions"];
