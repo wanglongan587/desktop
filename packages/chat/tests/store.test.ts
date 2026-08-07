@@ -121,6 +121,237 @@ test("restores a cancelled turn and its unfinished tools from the recorded bound
   }]);
 });
 
+test("keeps text that resumed after a tool call below it", async () => {
+  // Replays the frame order an agent that omits messageId produces: reasoning,
+  // the empty deltas it emits while switching to a tool, the call itself, more
+  // reasoning, then the answer. Every text chunk here is unidentified, so the
+  // run boundaries can only come from what arrived between them.
+  const chunk = (kind: "agent_message_chunk" | "agent_thought_chunk", text: string) =>
+    ({ type: "session_update", update: { sessionUpdate: kind, content: { type: "text", text } } }) as PromptSessionEvent;
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([{ type: "completed" }]),
+    prompt: () => events<PromptSessionEvent>([
+      chunk("agent_thought_chunk", " this"),
+      chunk("agent_thought_chunk", ".\n"),
+      chunk("agent_message_chunk", ""),
+      chunk("agent_message_chunk", "\n\n\n"),
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Terminal", kind: "execute", status: "pending" },
+      },
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call_update", toolCallId: "t1", title: "ls -la", status: "completed" },
+      },
+      chunk("agent_thought_chunk", "The"),
+      chunk("agent_thought_chunk", " command"),
+      chunk("agent_message_chunk", "Here are the files."),
+      { type: "completed", stopReason: "end_turn" },
+    ]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  const store = createChatStore(client, { createId: () => "local", now: () => 42 });
+
+  await store.getState().loadSession("ora-1");
+  await store.getState().sendMessage({ oraSessionId: "ora-1", text: "list files" });
+
+  // The blank deltas open nothing, and the answer lands behind the call it
+  // describes rather than merging back into an item positioned ahead of it.
+  const [turn] = store.getState().conversations["ora-1"]!.turns;
+  assert.deepEqual(
+    turn?.items.map((item) => [item.kind, item.kind === "toolCall" ? item.title : (item as { content: string }).content]),
+    [
+      ["thought", " this.\n"],
+      ["toolCall", "ls -la"],
+      ["thought", "The command"],
+      ["message", "Here are the files."],
+    ],
+  );
+});
+
+test("settles a live tool call the agent never reported finishing", async () => {
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([{ type: "completed" }]),
+    prompt: () => events<PromptSessionEvent>([
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read file", status: "in_progress" },
+      },
+      // The agent moves straight on to unrelated output and ends the turn without
+      // ever reporting the call finishing.
+      textEvent("agent_message_chunk", "here is what I found", "agent-1") as PromptSessionEvent,
+      { type: "completed", stopReason: "end_turn" },
+    ]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+  await store.getState().sendMessage({ oraSessionId: "ora-1", text: "read it" });
+
+  const [turn] = store.getState().conversations["ora-1"]!.turns;
+  assert.equal(turn?.status, "completed");
+  assert.deepEqual(turn?.items, [
+    {
+      kind: "toolCall",
+      id: "t1",
+      title: "Read file",
+      status: "completed",
+      content: [],
+      locations: [],
+      createdAt: 42,
+      updatedAt: 42,
+    },
+    {
+      kind: "message",
+      id: "message-agent-1",
+      role: "assistant",
+      content: "here is what I found",
+      createdAt: 42,
+      protocolMessageId: "agent-1",
+    },
+  ]);
+});
+
+test("shows an unsettled tool call as interrupted when the turn was cut short", async () => {
+  for (const stopReason of ["max_tokens", "max_turn_requests", "refusal"] as const) {
+    const client: ChatSessionClient = {
+      load: () => events<LoadSessionEvent>([{ type: "completed" }]),
+      prompt: () => events<PromptSessionEvent>([
+        {
+          type: "session_update",
+          update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read file", status: "in_progress" },
+        },
+        { type: "completed", stopReason },
+      ]),
+      respondToPermission: async () => ({}),
+      setConfig: async () => ({ configOptions: [] }),
+    };
+    let nextId = 0;
+    const store = createChatStore(client, {
+      createId: () => `local-${++nextId}`,
+      now: () => 42,
+    });
+
+    await store.getState().loadSession("ora-1");
+    await store.getState().sendMessage({ oraSessionId: "ora-1", text: "read it" });
+
+    // The agent never said the call finished and never chose to stop, so nothing
+    // observed an outcome worth reporting as success.
+    const [turn] = store.getState().conversations["ora-1"]!.turns;
+    assert.equal(turn?.items[0]?.kind === "toolCall" && turn.items[0].status, "cancelled", stopReason);
+  }
+});
+
+test("settles an unfinished tool call as interrupted when the stream fails", async () => {
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([{ type: "completed" }]),
+    prompt: async function* () {
+      yield {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Fetch data", status: "in_progress" },
+      } as PromptSessionEvent;
+      throw new Error("connection lost");
+    },
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+  await assert.rejects(store.getState().sendMessage({ oraSessionId: "ora-1", text: "fetch it" }));
+
+  // A broken stream leaves the tool's real outcome unknown, so the turn carries
+  // the failure while the call reads as interrupted rather than as having failed.
+  const [turn] = store.getState().conversations["ora-1"]!.turns;
+  assert.equal(turn?.status, "failed");
+  assert.deepEqual(turn?.items, [{
+    kind: "toolCall",
+    id: "t1",
+    title: "Fetch data",
+    status: "cancelled",
+    content: [],
+    locations: [],
+    createdAt: 42,
+    updatedAt: 42,
+  }]);
+});
+
+test("never reinterprets a tool failure the agent did report", async () => {
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([{ type: "completed" }]),
+    prompt: () => events<PromptSessionEvent>([
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Fetch data", status: "failed" },
+      },
+      { type: "completed", stopReason: "end_turn" },
+    ]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+  await store.getState().sendMessage({ oraSessionId: "ora-1", text: "fetch it" });
+
+  const [turn] = store.getState().conversations["ora-1"]!.turns;
+  assert.equal(turn?.items[0]?.kind === "toolCall" && turn.items[0].status, "failed");
+});
+
+test("restores an unfinished tool call as settled when the recorded turn completed", async () => {
+  const client: ChatSessionClient = {
+    load: () => events<LoadSessionEvent>([
+      textEvent("user_message_chunk", "read it", "user-1"),
+      {
+        type: "session_update",
+        update: { sessionUpdate: "tool_call", toolCallId: "t1", title: "Read file", status: "pending" },
+      },
+      { type: "turn_ended", stopReason: "end_turn" },
+      { type: "completed" },
+    ]),
+    prompt: () => events<PromptSessionEvent>([]),
+    respondToPermission: async () => ({}),
+    setConfig: async () => ({ configOptions: [] }),
+  };
+  let nextId = 0;
+  const store = createChatStore(client, {
+    createId: () => `local-${++nextId}`,
+    now: () => 42,
+  });
+
+  await store.getState().loadSession("ora-1");
+
+  // Records written before the turn boundary settled tool status still replay as
+  // a finished conversation rather than one that appears to still be working.
+  const [turn] = store.getState().conversations["ora-1"]!.turns;
+  assert.equal(turn?.status, "completed");
+  assert.deepEqual(turn?.items, [{
+    kind: "toolCall",
+    id: "t1",
+    title: "Read file",
+    status: "completed",
+    content: [],
+    locations: [],
+    createdAt: 42,
+    updatedAt: 42,
+  }]);
+});
+
 test("keeps consecutive prompts apart when neither produced agent output", async () => {
   const client: ChatSessionClient = {
     load: () => events<LoadSessionEvent>([

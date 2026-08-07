@@ -113,10 +113,7 @@ impl HistoryAssembler {
             SessionUpdate::AgentThoughtChunk(chunk) => self.push_text(TextKind::Thought, chunk),
             SessionUpdate::ToolCall(call) => self.upsert_tool(call.clone()),
             SessionUpdate::ToolCallUpdate(update) => self.update_tool(update),
-            SessionUpdate::Plan(plan) => {
-                self.replace_plan(plan.clone());
-                Vec::new()
-            }
+            SessionUpdate::Plan(plan) => self.replace_plan(plan.clone()),
             // Session chrome. The agent re-establishes it on every binding, so
             // persisting it would only preserve a copy that goes stale.
             SessionUpdate::AvailableCommandsUpdate(_)
@@ -128,6 +125,10 @@ impl HistoryAssembler {
     }
 
     /// Flushes every item still open and closes the turn with its stop reason.
+    ///
+    /// Tool calls the provider never reported finishing are settled here rather
+    /// than written mid-flight, because the turn ending is proof they are no
+    /// longer running.
     pub fn end_turn(&mut self, stop_reason: StopReason) -> Vec<AssembledRecord> {
         let mut records: Vec<AssembledRecord> = std::mem::take(&mut self.texts)
             .into_iter()
@@ -135,8 +136,7 @@ impl HistoryAssembler {
             .chain(
                 std::mem::take(&mut self.tools)
                     .into_iter()
-                    .filter(|tool| !tool.written)
-                    .map(|tool| tool_record(tool.seq, &tool.call)),
+                    .filter_map(|tool| tool.settle_at_turn_end(stop_reason)),
             )
             .chain(self.plan.take().map(|(seq, plan)| AssembledRecord {
                 seq,
@@ -159,11 +159,13 @@ impl HistoryAssembler {
         let ContentBlock::Text(text) = &chunk.content else {
             // Images, resources, and links have no text to append to and no
             // identity of their own, so each one stands alone where it arrived.
+            let mut records = self.interrupt_unidentified_text();
             let seq = self.take_seq();
-            return vec![AssembledRecord {
+            records.push(AssembledRecord {
                 seq,
                 record: chunk_record(kind, chunk.message_id.clone(), chunk.content.clone()),
-            }];
+            });
+            return records;
         };
         let existing = self.texts.iter_mut().find(|pending| {
             pending.kind == kind && pending.message_id.as_ref() == chunk.message_id.as_ref()
@@ -173,10 +175,13 @@ impl HistoryAssembler {
             return Vec::new();
         }
         // ACP defines a changed `messageId` as a new message, so the previous one
-        // on this stream can no longer grow. Chunks without an id cannot be told
-        // apart and stay open until the turn ends.
+        // on this stream can no longer grow. Chunks without an id stay open until
+        // something proves the run ended: another entry taking its own position,
+        // or the turn closing.
         let records = match chunk.message_id {
-            Some(_) => self.settle_identified_text(kind),
+            Some(_) => {
+                self.settle_texts(|pending| pending.kind == kind && pending.message_id.is_some())
+            }
             None => Vec::new(),
         };
         let seq = self.take_seq();
@@ -189,12 +194,15 @@ impl HistoryAssembler {
         records
     }
 
-    /// Closes the open identified message on one stream before a new one starts.
-    fn settle_identified_text(&mut self, kind: TextKind) -> Vec<AssembledRecord> {
+    /// Settles the open texts a caller has proved can no longer grow.
+    fn settle_texts(
+        &mut self,
+        can_no_longer_grow: impl Fn(&PendingText) -> bool,
+    ) -> Vec<AssembledRecord> {
         let mut settled = Vec::new();
         let mut remaining = Vec::with_capacity(self.texts.len());
         for pending in std::mem::take(&mut self.texts) {
-            if pending.kind == kind && pending.message_id.is_some() {
+            if can_no_longer_grow(&pending) {
                 settled.push(pending.into_record());
             } else {
                 remaining.push(pending);
@@ -202,6 +210,19 @@ impl HistoryAssembler {
         }
         self.texts = remaining;
         settled
+    }
+
+    /// Closes text runs that an entry claiming its own position has interrupted.
+    ///
+    /// Text carrying no `messageId` cannot be told apart from a later run on the
+    /// same stream, so arriving contiguously is the only evidence that chunks
+    /// belong to one message. An entry that takes its own position between two
+    /// chunks is exactly the evidence they do not: the text resumed after work
+    /// that has already happened. Merging across it would anchor the whole run to
+    /// a position earlier than the entry it followed, which is how a summary ends
+    /// up recorded ahead of the tool calls it describes.
+    fn interrupt_unidentified_text(&mut self) -> Vec<AssembledRecord> {
+        self.settle_texts(|pending| pending.message_id.is_none())
     }
 
     /// Installs a tool call's opening snapshot, replacing an earlier one in place.
@@ -232,24 +253,30 @@ impl HistoryAssembler {
 
     /// Starts tracking one tool call and writes it immediately if it arrived settled.
     fn open_tool(&mut self, call: ToolCall) -> Vec<AssembledRecord> {
+        let mut records = self.interrupt_unidentified_text();
         let seq = self.take_seq();
         let mut pending = PendingTool {
             seq,
             call,
             written: false,
         };
-        let records = pending.settle();
+        records.extend(pending.settle());
         self.tools.push(pending);
         records
     }
 
     /// Keeps only the newest plan snapshot, which is the one the turn ends with.
-    fn replace_plan(&mut self, plan: Plan) {
+    fn replace_plan(&mut self, plan: Plan) -> Vec<AssembledRecord> {
         match &mut self.plan {
-            Some((_, pending)) => *pending = plan,
+            Some((_, pending)) => {
+                *pending = plan;
+                Vec::new()
+            }
             None => {
+                let records = self.interrupt_unidentified_text();
                 let seq = self.take_seq();
                 self.plan = Some((seq, plan));
+                records
             }
         }
     }
@@ -283,6 +310,33 @@ impl PendingTool {
         }
         self.written = true;
         vec![tool_record(self.seq, &self.call)]
+    }
+
+    /// Emits this call's final snapshot once the turn it belongs to has ended.
+    ///
+    /// ACP does not require a provider to report a terminal status, and one that
+    /// simply moves on leaves the call frozen at `pending` or `in_progress`. That
+    /// is indistinguishable from work still running, so the record would keep a
+    /// state the conversation has already left behind.
+    ///
+    /// Only a turn the agent ended on its own terms is evidence that the call it
+    /// left open ran to completion — having chosen to stop, the agent had whatever
+    /// the tool produced. Every other ending cut the turn short, and a call open
+    /// at that moment may have been interrupted rather than finished, so its
+    /// unfinished status stands and `TurnEnded` records why. Crediting those with
+    /// success would report an outcome nobody observed.
+    ///
+    /// A terminal status the provider did report is never reinterpreted.
+    fn settle_at_turn_end(mut self, stop_reason: StopReason) -> Option<AssembledRecord> {
+        let unfinished = matches!(
+            self.call.status,
+            ToolCallStatus::Pending | ToolCallStatus::InProgress
+        );
+        if unfinished && stop_reason == StopReason::EndTurn {
+            self.call.status = ToolCallStatus::Completed;
+            return Some(tool_record(self.seq, &self.call));
+        }
+        (!self.written).then(|| tool_record(self.seq, &self.call))
     }
 }
 

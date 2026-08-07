@@ -16,7 +16,7 @@ mod task_diff;
 mod workflow;
 mod workflow_run;
 
-pub use agent_runtime::SessionEventStream;
+pub use agent_runtime::{SessionEventStream, SessionLocator};
 pub use bootstrap::{Backend, BackendBootstrapError, BackendPaths};
 pub use error::{BackendError, ErrorClassification};
 pub use request_lifecycle::{RequestIdGenerator, RequestLifecycle, UuidRequestIdGenerator};
