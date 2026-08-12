@@ -9,6 +9,8 @@
     "build": "pnpm --filter @ora/desktop build",
     "test:web-e2e": "playwright test --config playwright.config.ts",
     "test:desktop-e2e": "wdio run wdio.desktop.conf.ts",
+    "test:evidence": "node --test scripts/collect-test-evidence.test.mjs",
+    "collect:evidence": "node scripts/collect-test-evidence.mjs",
     "prepare": "husky",
     "tauri": "pnpm --filter @ora/desktop tauri"
   },

@@ -50,6 +50,10 @@ jobs:
       - name: Run native desktop tests
         run: task test:desktop-e2e
 
+      - name: Index desktop test evidence
+        if: ${{ always() }}
+        run: node scripts/collect-test-evidence.mjs --output test-results/desktop-e2e/evidence-manifest.json
+
       - name: Upload desktop failure evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6

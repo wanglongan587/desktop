@@ -42,12 +42,18 @@ jobs:
       - name: Generate and enforce Rust coverage
         run: task coverage:rust
 
+      - name: Index Rust coverage evidence
+        if: ${{ always() }}
+        run: node scripts/collect-test-evidence.mjs --output coverage/rust/evidence-manifest.json
+
       - name: Upload Rust coverage evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
         with:
           name: rust-coverage
-          path: coverage/rust/lcov.info
+          path: |
+            coverage/rust/lcov.info
+            coverage/rust/evidence-manifest.json
           if-no-files-found: warn
           retention-days: 14
 
@@ -81,6 +87,10 @@ jobs:
       - name: Generate and enforce UI coverage
         run: task coverage:ui
 
+      - name: Index UI coverage evidence
+        if: ${{ always() }}
+        run: node scripts/collect-test-evidence.mjs --output coverage/ui/evidence-manifest.json
+
       - name: Upload UI coverage evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
@@ -89,5 +99,6 @@ jobs:
           path: |
             coverage/ui/lcov.info
             coverage/ui/coverage-summary.json
+            coverage/ui/evidence-manifest.json
           if-no-files-found: warn
           retention-days: 14

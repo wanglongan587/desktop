@@ -47,6 +47,10 @@ jobs:
       - name: Run Web end-to-end tests
         run: task test:web-e2e
 
+      - name: Index Web test evidence
+        if: ${{ always() }}
+        run: node scripts/collect-test-evidence.mjs --output test-results/web-e2e/evidence-manifest.json
+
       - name: Upload Web failure evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6

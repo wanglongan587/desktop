@@ -56,6 +56,10 @@ jobs:
       - name: Run pull-request quality gates
         run: task test:pr
 
+      - name: Index test evidence
+        if: ${{ always() }}
+        run: node scripts/collect-test-evidence.mjs --output test-results/quality/evidence-manifest.json
+
       - name: Upload Rust test evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
@@ -71,5 +75,14 @@ jobs:
         with:
           name: component-test-evidence
           path: test-results/components/junit.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload quality evidence index
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: quality-evidence-index
+          path: test-results/quality/evidence-manifest.json
           if-no-files-found: warn
           retention-days: 14
