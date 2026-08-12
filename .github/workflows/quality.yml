@@ -64,3 +64,12 @@ jobs:
           path: target/nextest/ci/junit.xml
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload component test evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: component-test-evidence
+          path: test-results/components/junit.xml
+          if-no-files-found: warn
+          retention-days: 14

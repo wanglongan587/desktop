@@ -104,6 +104,12 @@ tasks:
       - pnpm --filter @ora/contracts test
       - pnpm --filter @ora-space/plugin-sdk test
       - pnpm --filter @ora-space/plugin-runtime test
+      - pnpm --filter @ora/ui test
+
+  coverage:ui:
+    desc: Generate UI component coverage and enforce its regression floor
+    cmds:
+      - pnpm --filter @ora/ui test:coverage
 
   test:rust:
     desc: Run hermetic Rust tests with machine-readable CI evidence

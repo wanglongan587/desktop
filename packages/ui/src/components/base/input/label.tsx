@@ -28,6 +28,7 @@ export const Label = ({ isInvalid, isRequired, tooltip, tooltipDescription, clas
             {props.children}
 
             <span
+                aria-hidden="true"
                 className={cx(
                     "hidden text-brand-tertiary",
                     isRequired && "block",

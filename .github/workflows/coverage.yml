@@ -1,4 +1,4 @@
-name: Rust coverage
+name: Coverage gates
 
 on:
   pull_request:
@@ -48,5 +48,46 @@ jobs:
         with:
           name: rust-coverage
           path: coverage/rust/lcov.info
+          if-no-files-found: warn
+          retention-days: 14
+
+  ui:
+    name: UI component coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.12.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Task
+        uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate and enforce UI coverage
+        run: task coverage:ui
+
+      - name: Upload UI coverage evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: ui-coverage
+          path: |
+            coverage/ui/lcov.info
+            coverage/ui/coverage-summary.json
           if-no-files-found: warn
           retention-days: 14

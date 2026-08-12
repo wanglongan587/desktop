@@ -11,6 +11,10 @@
     "./theme.css": "./src/styles/theme.css",
     "./typography.css": "./src/styles/typography.css"
   },
+  "scripts": {
+    "test": "tsc -p tsconfig.json && vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
   "dependencies": {
     "@react-aria/utils": "^3.34.1",
     "@react-stately/utils": "^3.12.1",
@@ -25,5 +29,13 @@
   "peerDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
+    "@vitest/coverage-v8": "^4.1.10",
+    "jsdom": "^30.0.1",
+    "vitest": "^4.1.10"
   }
 }

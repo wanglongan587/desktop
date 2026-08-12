@@ -35,7 +35,7 @@ export const NativeSelect = ({ label, hint, options, className, selectClassName,
     return (
         <div className={cx("w-full in-data-input-wrapper:w-max", className)}>
             {label && (
-                <Label htmlFor={selectId} id={selectId} className="mb-1.5">
+                <Label htmlFor={selectId} className="mb-1.5">
                     {label}
                 </Label>
             )}
@@ -44,8 +44,7 @@ export const NativeSelect = ({ label, hint, options, className, selectClassName,
                 <select
                     {...props}
                     id={selectId}
-                    aria-describedby={hintId}
-                    aria-labelledby={selectId}
+                    aria-describedby={hint ? hintId : undefined}
                     className={cx(
                         "appearance-none rounded-lg bg-primary font-medium text-primary shadow-xs ring-1 ring-primary outline-hidden transition duration-100 ease-linear ring-inset placeholder:text-fg-quaternary focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-not-allowed disabled:opacity-50",
 
@@ -65,7 +64,7 @@ export const NativeSelect = ({ label, hint, options, className, selectClassName,
                     )}
                 >
                     {options.map((opt) => (
-                        <option key={opt.value} value={opt.value}>
+                        <option key={opt.value} value={opt.value} disabled={opt.disabled}>
                             {opt.label}
                         </option>
                     ))}
