@@ -24,8 +24,11 @@ jobs:
       github.event.workflow_run.conclusion == 'failure' &&
       vars.CODEX_AUTO_REPAIR_ENABLED == 'true' &&
       !startsWith(github.event.workflow_run.head_branch, 'codex/auto-fix-') &&
-      (github.event.workflow_run.event != 'pull_request' ||
-      github.event.workflow_run.head_repository.full_name == github.repository)
+      ((github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository) ||
+      (github.event.workflow_run.event != 'pull_request' &&
+      (github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+      startsWith(github.event.workflow_run.head_branch, 'v'))))
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:

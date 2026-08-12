@@ -48,9 +48,11 @@ JUnit/LCOV 汇总。收集器永远不掩盖原始测试退出码；缺失报告
 
 1. 添加 Actions secret `OPENAI_API_KEY`。
 2. 添加 Actions variable `CODEX_AUTO_REPAIR_ENABLED=true`。未配置时工作流安全地跳过。
-3. 为 `main` 启用 branch protection，至少要求 Quality、Coverage、Web E2E、Desktop E2E 和
+3. 在 Actions 的 Workflow permissions 中启用“Allow GitHub Actions to create and approve pull
+   requests”。工作流只创建 draft PR，不执行 approve；未启用时 patch artifact 仍会保留，但开 PR 失败。
+4. 为 `main` 启用 branch protection，至少要求 Quality、Coverage、Web E2E、Desktop E2E 和
    Security checks；禁止自动修复 PR 绕过 review。
-4. 对发布 tag 使用 Environment approval，并把 `Release candidate gates` 作为发布前置条件。
+5. 对发布 tag 使用 Environment approval，并把 `Release candidate gates` 作为发布前置条件。
 
 如果团队不使用 OpenAI API key，可保持 variable 未设置：全部确定性测试和证据链仍正常运行，失败
 由人工或其他 agent 消费 artifact。官方 Codex Action 的模型/版本可由仓库管理员集中固定，但不要让
