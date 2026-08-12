@@ -33,3 +33,6 @@ packages/plugin-runtime/.test-dist/
 /.cache/plugin-runtime/
 /.cache/plugin-sdk-pack-tests/
 /runtime-assets/prepared/
+/test-results/
+/playwright-report/
+/coverage/

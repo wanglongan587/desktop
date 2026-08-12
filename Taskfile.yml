@@ -49,11 +49,16 @@ tasks:
       - cargo clean
 
   lint:
-    desc: Run linters on all crates
+    desc: Check formatting and run Rust linters without modifying the workspace
     silent: true
     cmds:
-      - cargo fmt --all
+      - cargo fmt --all -- --check
       - cargo clippy --workspace -- -D warnings
+
+  fmt:
+    desc: Format all Rust crates
+    cmds:
+      - cargo fmt --all
 
   export-contracts:
     desc: Regenerate TypeScript contracts and the frontend SDK package
@@ -64,6 +69,12 @@ tasks:
     desc: Regenerate TypeScript plugin SDK protocol types
     cmds:
       - cargo xtask export-plugin-sdk
+
+  check-generated:
+    desc: Verify generated contracts and plugin protocol files without rewriting them
+    cmds:
+      - cargo xtask export-contracts --check
+      - cargo xtask export-plugin-sdk --check
 
   prepare-plugin-runtime:
     desc: Explicitly download, verify, bundle, and stage pinned plugin runtime resources
@@ -86,18 +97,37 @@ tasks:
     cmds:
       - cargo build --workspace
 
-  test:
-    desc: Run contract package tests and Rust tests
+  test:typescript:
+    desc: Run every TypeScript contract, SDK, and runtime test suite
     silent: true
     cmds:
-      - task: lint
-      - task: export-contracts
-      - task: export-plugin-sdk
       - pnpm --filter @ora/contracts test
       - pnpm --filter @ora-space/plugin-sdk test
       - pnpm --filter @ora-space/plugin-runtime test
-      - task: test-plugin-runtime-e2e
+
+  test:rust:
+    desc: Run the hermetic Rust workspace test suite
+    cmds:
       - cargo test --workspace
+
+  test:pr:
+    desc: Run deterministic pull-request quality gates without real runtime assets
+    cmds:
+      - task: lint
+      - task: check-generated
+      - task: test:typescript
+      - task: test:rust
+
+  test:system:
+    desc: Run real Bun, Windows Job, plugin, and backend runtime E2E tests
+    cmds:
+      - task: test-plugin-runtime-e2e
+
+  test:
+    desc: Run pull-request gates and real local system tests
+    cmds:
+      - task: test:pr
+      - task: test:system
 
   ###################################################
   ############# Run Development Servers #############

@@ -23,7 +23,8 @@ The first `project` vertical slice is split across `ora-application`, `ora-contr
 ## Frontend SDK Export
 
 - Run `cargo xtask export-contracts` to regenerate the TypeScript DTOs, endpoint manifest, runtime-agnostic client, and browser `fetch` transport in `packages/contracts`.
-- `Taskfile.yml` exposes the same workflow through `task export-contracts`, and `task test` refreshes the generated package before running the TypeScript and Rust test suites.
+- `Taskfile.yml` exposes the same workflow through `task export-contracts`.
+- `task check-generated` performs an isolated, read-only export and fails when tracked output is stale; tests never rewrite generated files.
 - The generated client builds URLs from contract-owned path metadata, serializes JSON request bodies after removing path parameters, and delegates execution to an injected transport.
 - The generated browser transport resolves endpoint paths against a server `baseUrl` and decodes the shared web-server error envelope into a normalized SDK transport error.
 
