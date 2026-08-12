@@ -1,0 +1,40 @@
+name: Release candidate gates
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  security-events: write
+
+concurrency:
+  group: release-gate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    name: Deterministic quality gates
+    uses: ./.github/workflows/quality.yml
+
+  coverage:
+    name: Coverage regression gates
+    uses: ./.github/workflows/coverage.yml
+
+  web:
+    name: Browser functional gates
+    uses: ./.github/workflows/web-e2e.yml
+
+  desktop:
+    name: Native desktop gate
+    uses: ./.github/workflows/desktop-e2e.yml
+
+  runtime:
+    name: Real runtime gate
+    uses: ./.github/workflows/nightly-system.yml
+
+  security:
+    name: Dependency and source security gates
+    uses: ./.github/workflows/security.yml

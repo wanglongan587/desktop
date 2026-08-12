@@ -1,6 +1,7 @@
 name: Web end-to-end tests
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches:

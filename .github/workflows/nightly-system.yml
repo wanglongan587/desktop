@@ -1,0 +1,74 @@
+name: Nightly full-system tests
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    # 02:47 Asia/Shanghai, after normal pull-request traffic has subsided.
+    - cron: "47 18 * * 1-5"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-system-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-runtime:
+    name: Pinned Bun and Windows process lifecycle
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.12.0
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install Task
+        uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare pinned runtime assets
+        run: task prepare-plugin-runtime
+
+      - name: Exercise the real plugin and backend runtime
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path test-results/nightly | Out-Null
+          task test:system 2>&1 | Tee-Object -FilePath test-results/nightly/runtime.log
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Index nightly evidence
+        if: ${{ always() }}
+        run: node scripts/collect-test-evidence.mjs --output test-results/nightly/evidence-manifest.json
+
+      - name: Upload full-system evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: nightly-system-evidence
+          path: |
+            test-results/nightly/
+            runtime-assets/prepared/runtime-manifest.json
+          if-no-files-found: warn
+          retention-days: 30
