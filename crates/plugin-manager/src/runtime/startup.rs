@@ -290,7 +290,10 @@ where
                         Some(ReaderEvent::Envelope(_)) => {}
                     }
                 }
-                process = transport.process_events.recv() => {
+                // Once every process-owned drain signal arrived, a closed process channel is
+                // expected. Disable this branch so stdout EOF wins instead of being raced by an
+                // immediately-ready `None` that would falsely report cleanup failure.
+                process = transport.process_events.recv(), if !(stderr && direct && tree) => {
                     match process {
                         Some(GenerationProcessEvent::DirectExit(_)) => direct = true,
                         Some(GenerationProcessEvent::TreeEmpty(result)) => {

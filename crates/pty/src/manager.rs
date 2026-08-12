@@ -311,11 +311,14 @@ fn spawn_reader_loop(session: Arc<SessionState>, mut reader: Box<dyn Read + Send
                 Ok(0) => break,
                 Ok(bytes_read) => {
                     let data = String::from_utf8_lossy(&buffer[..bytes_read]).to_string();
-                    session
+                    let mut history = session
                         .history
                         .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .push(data.clone());
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
+                    history.push(data.clone());
+                    // History insertion and live publication form one ordering boundary with
+                    // attach_session's replay-plus-subscribe snapshot. Holding the lock through
+                    // send prevents a chunk from appearing in both replay and the live stream.
                     let _ = session
                         .output_sender
                         .send(PtyOutputChunkEvent::Output { data });
@@ -404,6 +407,7 @@ fn spawn_exit_waiter(
 #[cfg(test)]
 mod tests {
     use super::{PtyRuntimeManager, PtySessionStartRequest};
+    use crate::PtyOutputChunkEvent;
     use crate::process::{
         PtyChildExit, PtyIoHandle, PtyProcess, PtyProcessFactory, PtyProcessFactoryError,
         PtyProcessHandle, PtyProcessId, PtyProcessSpawnRequest, PtySize,
@@ -444,17 +448,31 @@ mod tests {
                 rows: 24,
             })
             .unwrap_or_else(|error| panic!("expected session startup to succeed: {error}"));
-        std::thread::sleep(Duration::from_millis(30));
-        let first_attachment = manager
+        let mut first_attachment = manager
             .attach_session(&PtySessionId::new("session-1"))
             .unwrap_or_else(|error| panic!("expected first attachment to succeed: {error:?}"));
-
-        assert_eq!(
-            first_attachment.replay.chunks,
-            vec![crate::types::PtyOutputChunk {
-                data: "hello\n".to_string(),
-            }]
-        );
+        let expected_output = crate::types::PtyOutputChunk {
+            data: "hello\n".to_string(),
+        };
+        if first_attachment.replay.chunks.is_empty() {
+            let live_output = tokio::time::timeout(
+                Duration::from_secs(1),
+                first_attachment.output_receiver.recv(),
+            )
+            .await
+            .unwrap_or_else(|_| panic!("expected deterministic fake PTY output"));
+            assert_eq!(
+                live_output,
+                Ok(PtyOutputChunkEvent::Output {
+                    data: expected_output.data.clone(),
+                })
+            );
+        } else {
+            assert_eq!(
+                first_attachment.replay.chunks,
+                vec![expected_output.clone()]
+            );
+        }
         manager
             .detach_session(&PtySessionId::new("session-1"))
             .unwrap_or_else(|error| panic!("expected detach to succeed: {error:?}"));
@@ -464,12 +482,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("expected second attachment to succeed: {error:?}"));
 
         assert_eq!(second_attachment.state, PtyClientAttachmentState::Attached);
-        assert_eq!(
-            second_attachment.replay.chunks,
-            vec![crate::types::PtyOutputChunk {
-                data: "hello\n".to_string(),
-            }]
-        );
+        assert_eq!(second_attachment.replay.chunks, vec![expected_output]);
     }
 
     /// Verifies the runtime rejects a second concurrent live attachment for the same session.

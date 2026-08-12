@@ -469,7 +469,9 @@ fn stdin_echo_command() -> ProcessSpec {
 
 #[cfg(windows)]
 fn long_running_command() -> ProcessSpec {
-    shell_command("ping -n 6 127.0.0.1 > nul")
+    // Spawn the long-running process directly so killing it cannot orphan a shell child that
+    // nextest correctly reports as a leaked process.
+    ProcessSpec::new("ping.exe").args(["-n", "6", "127.0.0.1"])
 }
 
 #[cfg(not(windows))]

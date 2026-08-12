@@ -106,9 +106,37 @@ tasks:
       - pnpm --filter @ora-space/plugin-runtime test
 
   test:rust:
-    desc: Run the hermetic Rust workspace test suite
+    desc: Run hermetic Rust tests with machine-readable CI evidence
     cmds:
-      - cargo test --workspace
+      - cargo nextest run --workspace --profile ci
+      - cargo test --workspace --doc
+
+  coverage:rust:
+    desc: Generate the Rust line-coverage baseline and enforce its regression floor
+    cmds:
+      - |
+        {{if eq OS "windows"}}
+        powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path 'coverage/rust' | Out-Null"
+        {{else}}
+        mkdir -p coverage/rust
+        {{end}}
+      - cargo llvm-cov --workspace --lcov --output-path coverage/rust/lcov.info --fail-under-lines 65
+
+  audit:rust:
+    desc: Reject Rust dependencies with known vulnerabilities or unsoundness advisories
+    cmds:
+      - cargo audit
+
+  audit:typescript:
+    desc: Reject high-severity JavaScript dependency advisories
+    cmds:
+      - pnpm audit --audit-level high
+
+  audit:
+    desc: Run Rust and JavaScript dependency security gates
+    cmds:
+      - task: audit:rust
+      - task: audit:typescript
 
   test:pr:
     desc: Run deterministic pull-request quality gates without real runtime assets

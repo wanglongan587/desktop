@@ -1,0 +1,15 @@
+[profile.default]
+# A slow warning surfaces accidental sleeps and blocking I/O without killing legitimate
+# repository/process integration tests on slower Windows runners.
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+[profile.ci]
+# Collect every failure in one run so both humans and repair agents receive a complete signal.
+fail-fast = false
+retries = 0
+
+[profile.ci.junit]
+path = "junit.xml"
+report-name = "ora-rust"
+store-success-output = false
+store-failure-output = true

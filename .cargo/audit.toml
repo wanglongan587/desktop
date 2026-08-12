@@ -1,0 +1,11 @@
+[advisories]
+# Tauri 2 still resolves GTK3 for Linux when Cargo.lock is generated for all targets. Ora's
+# published desktop target is Windows, where this package is not compiled. Keep this exception
+# narrow so every other current or future unsoundness advisory remains release-blocking.
+ignore = ["RUSTSEC-2024-0429"]
+
+[output]
+deny = ["unsound"]
+format = "terminal"
+quiet = false
+show_tree = true

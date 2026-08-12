@@ -1,4 +1,4 @@
-name: Quality gates
+name: Rust coverage
 
 on:
   pull_request:
@@ -10,14 +10,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: quality-${{ github.workflow }}-${{ github.ref }}
+  group: coverage-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  pull-request:
-    name: Pull-request gates (Windows)
+  rust:
+    name: Rust line coverage (Windows)
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -28,39 +28,25 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
 
-      - name: Install Rust test runner
+      - name: Install coverage tool
         uses: taiki-e/install-action@v2
         with:
-          tool: nextest
+          tool: cargo-llvm-cov
           fallback: none
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: 11.12.0
-
-      - name: Install Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
 
       - name: Install Task
         uses: go-task/setup-task@v2
         with:
           version: 3.x
 
-      - name: Install JavaScript dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Generate and enforce Rust coverage
+        run: task coverage:rust
 
-      - name: Run pull-request quality gates
-        run: task test:pr
-
-      - name: Upload Rust test evidence
+      - name: Upload Rust coverage evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v6
         with:
-          name: rust-test-evidence
-          path: target/nextest/ci/junit.xml
+          name: rust-coverage
+          path: coverage/rust/lcov.info
           if-no-files-found: warn
           retention-days: 14
