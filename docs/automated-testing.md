@@ -31,11 +31,12 @@ JUnit/LCOV 汇总。收集器永远不掩盖原始测试退出码；缺失报告
 
 1. 只接受本仓库的受信任分支或同仓库 PR；fork PR 不会向 Codex 暴露密钥。
 2. 只读 job 检出失败 revision，先安装依赖，再下载日志与 artifact。
-3. Codex 只获得 `contents: read` 和 `workspace-write` 沙箱；日志被明确视为不可信数据。
-4. Codex 复现最窄用例、提交最小代码与回归测试，但不能提交、推送或更改工作流与门禁阈值。
-5. 只读 job 输出 binary patch 和修复报告。另一个没有 OpenAI API key 的写权限 job 校验并应用
+3. 在暴露模型密钥前，从默认分支恢复固定 repair prompt；失败分支不能替换 agent 指令。
+4. Codex 只获得 `contents: read` 和 `workspace-write` 沙箱；日志被明确视为不可信数据。
+5. Codex 复现最窄用例、提交最小代码与回归测试，但不能提交、推送或更改工作流与门禁阈值。
+6. 只读 job 输出 binary patch 和修复报告。另一个没有 OpenAI API key 的写权限 job 校验并应用
    该 patch，创建中文 commit 和 draft PR。
-6. `codex/auto-fix-*` 分支的再次失败不会触发第二轮修复；系统不自动合并。
+7. `codex/auto-fix-*` 分支的再次失败不会触发第二轮修复；系统不自动合并。
 
 自动 patch 的硬预算为 1 MiB、25 个文件和 1500 行变更；超过任一限制只保留修复报告，不创建 PR。
 
