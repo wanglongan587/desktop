@@ -1,5 +1,10 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+overrides:
+  serialize-javascript: 7.0.3
 allowBuilds:
+  edgedriver: false
+  esbuild: true
+  geckodriver: false
   msw: true

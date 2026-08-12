@@ -116,6 +116,13 @@ tasks:
     cmds:
       - pnpm test:web-e2e
 
+  test:desktop-e2e:
+    desc: Build and drive the native Windows Tauri shell through embedded WebDriver
+    platforms: [windows]
+    cmds:
+      - pnpm --filter @ora/desktop tauri build --debug --no-bundle --features desktop-e2e
+      - pnpm test:desktop-e2e
+
   test:rust:
     desc: Run hermetic Rust tests with machine-readable CI evidence
     cmds:

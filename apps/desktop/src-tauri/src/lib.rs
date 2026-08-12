@@ -107,7 +107,7 @@ fn require_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
 /// Starts the Tauri application and wires in development-only logging.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .manage(DesktopBackendState {
             runtime: Mutex::new(None),
         })
@@ -116,7 +116,12 @@ pub fn run() {
             plugin_backend_bootstrap,
             plugin_pick_candidate,
             plugin_confirm_all_owner_data_removal
-        ])
+        ]);
+    // The embedded driver is compiled only into the dedicated E2E binary, so production builds
+    // never expose an automation server or its additional attack surface.
+    #[cfg(feature = "desktop-e2e")]
+    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
+    let app = builder
         .setup(|app| {
             let _ = bootstrap_project_id();
             if cfg!(debug_assertions) {
@@ -125,6 +130,11 @@ pub fn run() {
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            }
+            // Renderer/window smoke tests do not need the separately covered plugin runtime.
+            // Keeping that dependency out makes the native window gate deterministic and fast.
+            if cfg!(feature = "desktop-e2e") {
+                return Ok(());
             }
             let runtime_config = RuntimeConfig::from_env()?;
             let resources = app.path().resource_dir()?.join("plugin-runtime");
