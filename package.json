@@ -7,13 +7,16 @@
   "scripts": {
     "dev": "pnpm --filter @ora/desktop dev",
     "build": "pnpm --filter @ora/desktop build",
+    "test:web-e2e": "playwright test --config playwright.config.ts",
     "prepare": "husky",
     "tauri": "pnpm --filter @ora/desktop tauri"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.13.0",
     "@commitlint/cli": "^20.5.3",
     "@commitlint/config-conventional": "^20.5.3",
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",

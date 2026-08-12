@@ -111,6 +111,11 @@ tasks:
     cmds:
       - pnpm --filter @ora/ui test:coverage
 
+  test:web-e2e:
+    desc: Run browser-level Web smoke and accessibility tests with failure artifacts
+    cmds:
+      - pnpm test:web-e2e
+
   test:rust:
     desc: Run hermetic Rust tests with machine-readable CI evidence
     cmds:
