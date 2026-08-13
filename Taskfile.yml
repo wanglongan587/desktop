@@ -81,10 +81,16 @@ tasks:
     cmds:
       - powershell -NoProfile -ExecutionPolicy Bypass -File scripts/prepare-plugin-runtime.ps1
 
+  verify-plugin-runtime-prepared:
+    desc: Verify that pinned plugin runtime resources were prepared explicitly
+    internal: true
+    cmds:
+      - powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath 'runtime-assets/prepared/runtime-manifest.json' -PathType Leaf)) { throw 'plugin runtime resources are not prepared; run task prepare-plugin-runtime before task test' }"
+
   test-plugin-runtime-e2e:
     desc: Run the real pinned Bun and Windows Job integration gates
     cmds:
-      - powershell -NoProfile -Command "if (-not (Test-Path -LiteralPath 'runtime-assets/prepared/runtime-manifest.json')) { throw 'run task prepare-plugin-runtime before the real runtime E2E gate' }"
+      - task: verify-plugin-runtime-prepared
       - pnpm --filter @ora-space/plugin-sdk build
       - cargo test -p ora-process bun_stdio_round_trips_through_windows_job_pipes -- --ignored --test-threads=1
       - cargo test -p ora-process abrupt_host_exit_closes_the_job_and_kills_descendants -- --ignored --test-threads=1
