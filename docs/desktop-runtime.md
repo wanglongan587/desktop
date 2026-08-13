@@ -1,0 +1,75 @@
+# Desktop Runtime
+
+`apps/desktop/src-tauri` is an independent Cargo workspace that hosts the same persisted operations and ACP streaming capabilities as the Web server without running an HTTP server.
+
+## Shared Backend and Commands
+
+Desktop constructs one cloneable `ora-backend::Backend`. A shared command wrapper assigns a canonical
+request id, opens the request span, invokes unary business logic, projects any backend error, and
+records at most one completion event. Session load, prompt, and `watchAppEvents` operations use `stream_contract`, which
+forwards ordered `data`, `error`, and `end` frames over a Tauri Channel. A private call id allows an
+`AbortSignal` to cancel only that stream, while one separate request id correlates the complete stream.
+
+The frontend injects `createTauriTransport()` into `createContractsClient`. The transport maps contract operation names to Tauri commands and forwards the original request DTO unchanged. Shared backend failures use the same direct `{ code, params, requestId }` payload as Web, without a public message or outer envelope. Tauri and fetch reuse the same runtime decoder; local Tauri invocation failures have no HTTP status and never invent a request id.
+
+Task workspace lookup and Spec management are part of that shared contract surface. `get_task_workspace` returns the authoritative task root with an optional branch, while `catalog_specs`, `read_spec`, `resolve_spec_source`, and `update_project_spec_sources` delegate unary work to the shared backend. `watch_specs` and `watchAppEvents` use the same channel framing, cancellation, and exactly-once completion lifecycle as other Desktop streams. The frontend still selects directories through the existing native `PlatformAdapter.selectPath({ kind: "directory" })` path picker; no Spec-specific browser command exists.
+
+Backend construction immediately attempts supervised `opencode acp`, `nga acp`, `codeagentcli acp`, `claude-agent-acp`, and `codex-acp` children in the user's home directory. Sessions share the connection selected by their current `agentCli` while retaining their own ACP session id and Task worktree `cwd`. `switch_session_agent` moves a live conversation to another CLI and `resume_session_history` recovers one whose history writes failed. Each CLI retries independently; failures leave the Desktop shell and healthy CLIs available, while operations targeting an unavailable CLI report `agent_runtime_unavailable`. Executable lookup is platform-specific — see [ACP Agent Runtime](agent-runtime.md).
+
+The Desktop App Shell waits for the `Ready` frame before mounting normal queries and watchers. The native platform adapter grants application-window ownership immediately because Tauri owns one main window; browser hosts implement the same frontend seam with a Web Lock. The application stream itself is a multi-subscriber, best-effort session-title invalidation broadcast rather than a page lease or persisted event log.
+
+Beyond the shared contract surface, Desktop registers four platform-only commands with no HTTP counterpart: `get_desktop_config`, `set_worktree_root`, `resolve_task_cwd`, and `open_location`.
+
+One contract operation is not implemented on Desktop:
+
+- listing a server filesystem directory.
+
+No Tauri command exists for it. The contracts transport rejects it with `unsupported_operation` before any IPC call is made, so the exclusion is enforced client-side rather than by a stub command.
+
+## Skill imports
+
+Desktop exposes the shared import session lifecycle through four unary Tauri commands:
+`prepare_skill_import`, `get_skill_import`, `commit_skill_import`, and `cancel_skill_import`.
+The frontend sends the system picker's local path inside `PrepareSkillImportRequest`; the Rust
+side reads the folder or archive, so file bytes (up to 200 MiB) are never serialized over Tauri
+IPC. Preparation, preview, conflict decisions, background commit, and result retention behave
+identically to the Web runtime because both adapters call the same `ora-backend` composition.
+
+The configured root is only a creation target. Existing worktree locations are resolved from the stored branch name and `git worktree list --porcelain` when an agent Session starts or loads. Task and project deletion never mutate Git.
+
+## Persistent Paths
+
+The Tauri identifier is `space.ora.desktop`. Tauri's system `app_data_dir` owns all default runtime state:
+
+- SQLite: `app_data_dir/ora.sqlite3`
+- Configuration: `app_data_dir/config.json`
+- Logs: `app_data_dir/logs/ora.log`
+- Default new-worktree root: `app_data_dir/worktrees`
+- Session history: `app_data_dir/sessions`
+ - Skill packages root: `app_data_dir/atoms/skills`
+
+On first launch, Desktop creates the app data directory, default worktree directory, and a versioned configuration file using an atomic sibling-temporary-file replacement. `config.json` currently holds version `1` and the `worktreeRoot`. Existing malformed, unknown-version, or otherwise invalid configuration is fatal; Desktop does not silently reset it.
+
+Unlike the Web server, Desktop reads no environment variables for these paths. Everything is derived from Tauri's `app_data_dir` and the versioned configuration file.
+
+The worktree root is non-sensitive configuration. Users can change it from Settings → Data & privacy on Desktop. A selected value must be an absolute path to an existing directory. The new value affects task creations that start after the update; in-flight operations retain their original snapshot, and existing worktrees are not moved.
+
+The configured root is only a creation target. Existing worktree locations are resolved from the stored branch name and `git worktree list --porcelain` when an agent Session starts or loads, and `resolve_task_cwd` exposes that same resolution to the shell. Task and project deletion never mutate Git. See [Task Worktrees](task-worktrees.md).
+
+## Logging
+
+Desktop initializes `ora-logging` before opening the backend and registers the Gitlancer logger bridge. Logs rotate daily and retain three files. Debug builds write to stdout and the file; release builds write to the file only. The logging guard remains managed for the application lifetime.
+
+Each unary command or stream emits at most one request-completion event using the same request id as
+its public failure payload or error frame. Cancellation is completed at `DEBUG` and is not projected
+as `internal_error`. If rollback or cleanup also fails, Desktop retains the primary response and
+source chain and records the secondary failure as a separate operation with the same request id.
+
+At startup, Desktop reads the operating system's IANA timezone and fixes it for the process
+lifetime. Structured event timestamps use that timezone. If the system timezone cannot be read or
+parsed, Desktop records a warning, uses UTC, and continues startup. A system timezone change takes
+effect after Ora restarts. Daily log files continue to rotate at UTC boundaries.
+
+## Verification
+
+The Tauri Rust crate keeps its own `Cargo.lock` and is intentionally excluded from the root Cargo workspace. `task test:desktop` checks the Desktop transport, formatting, Clippy, and the independent Rust tests. `task test` includes this task explicitly.

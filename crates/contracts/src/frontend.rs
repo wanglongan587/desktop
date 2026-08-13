@@ -1,458 +1,68 @@
-use serde::Serialize;
+//! HTTP path templates shared by server adapters and frontend contract generation.
 
-/// Enumerates the HTTP methods supported by the generated frontend SDK.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "UPPERCASE")]
-pub enum FrontendHttpMethod {
-    Get,
-    Post,
-    Put,
-    Delete,
-}
+mod spec;
 
-/// Describes one request field that the transport must interpolate into the URL path.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FrontendPathParam {
-    pub rust_field_name: &'static str,
-    pub wire_name: &'static str,
-}
-
-/// Describes one frontend-facing HTTP operation exported from `ora-contracts`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct FrontendEndpoint {
-    pub operation_name: &'static str,
-    pub method: FrontendHttpMethod,
-    pub path_template: &'static str,
-    pub request_type: &'static str,
-    pub response_type: &'static str,
-    pub path_params: &'static [FrontendPathParam],
-    pub has_json_body: bool,
-}
+pub use spec::{
+    PROJECT_SPEC_SOURCES_PATH, SPEC_CATALOG_PATH, SPEC_READ_PATH, SPEC_RESOLVE_SOURCE_PATH,
+    SPEC_WATCH_PATH,
+};
 
 pub const PROJECTS_PATH: &str = "/api/projects";
 pub const PROJECT_PATH: &str = "/api/projects/{projectId}";
-pub const PROJECT_WORK_CONTEXT_OPEN_PATH: &str = "/api/project-work-contexts/open";
-pub const PROJECT_WORK_CONTEXT_RENEW_PATH: &str = "/api/project-work-contexts/renew";
+pub const PROJECT_BRANCHES_PATH: &str = "/api/projects/{projectId}/branches";
 pub const TASKS_PATH: &str = "/api/tasks";
 pub const TASK_PATH: &str = "/api/tasks/{taskId}";
+pub const TASK_WORKSPACE_PATH: &str = "/api/tasks/{taskId}/workspace";
+pub const TASK_DIFF_PATH: &str = "/api/tasks/{taskId}/diff";
+pub const TASK_COMMIT_PATH: &str = "/api/tasks/{taskId}/git/commit";
+pub const TASK_PUSH_PATH: &str = "/api/tasks/{taskId}/git/push";
+pub const TASK_DIFF_COMMENTS_PATH: &str = "/api/tasks/{taskId}/diff/comments";
+pub const TASK_DIFF_COMMENT_REPLIES_PATH: &str =
+    "/api/tasks/{taskId}/diff/comments/{commentId}/replies";
+pub const TASK_DIFF_COMMENT_STATUS_PATH: &str =
+    "/api/tasks/{taskId}/diff/comments/{commentId}/status";
 pub const SESSIONS_PATH: &str = "/api/sessions";
+pub const APP_EVENT_WATCH_PATH: &str = "/api/app-events/watch";
 pub const SESSION_PATH: &str = "/api/sessions/{sessionId}";
-pub const SESSION_TERMINAL_PATH: &str = "/api/sessions/{sessionId}/terminal";
-
-const PROJECT_ID_PATH_PARAM: FrontendPathParam = FrontendPathParam {
-    rust_field_name: "project_id",
-    wire_name: "projectId",
-};
-const TASK_ID_PATH_PARAM: FrontendPathParam = FrontendPathParam {
-    rust_field_name: "task_id",
-    wire_name: "taskId",
-};
-const SESSION_ID_PATH_PARAM: FrontendPathParam = FrontendPathParam {
-    rust_field_name: "session_id",
-    wire_name: "sessionId",
-};
-
-const PROJECT_PATH_PARAMS: &[FrontendPathParam] = &[PROJECT_ID_PATH_PARAM];
-const TASK_PATH_PARAMS: &[FrontendPathParam] = &[TASK_ID_PATH_PARAM];
-const SESSION_PATH_PARAMS: &[FrontendPathParam] = &[SESSION_ID_PATH_PARAM];
-const NO_PATH_PARAMS: &[FrontendPathParam] = &[];
-
-const FRONTEND_ENDPOINTS: &[FrontendEndpoint] = &[
-    FrontendEndpoint {
-        operation_name: "createProject",
-        method: FrontendHttpMethod::Post,
-        path_template: PROJECTS_PATH,
-        request_type: "CreateProjectRequest",
-        response_type: "CreateProjectResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "getProject",
-        method: FrontendHttpMethod::Get,
-        path_template: PROJECT_PATH,
-        request_type: "GetProjectRequest",
-        response_type: "GetProjectResponse",
-        path_params: PROJECT_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "listProjects",
-        method: FrontendHttpMethod::Get,
-        path_template: PROJECTS_PATH,
-        request_type: "ListProjectsRequest",
-        response_type: "ListProjectsResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "updateProject",
-        method: FrontendHttpMethod::Put,
-        path_template: PROJECT_PATH,
-        request_type: "UpdateProjectRequest",
-        response_type: "UpdateProjectResponse",
-        path_params: PROJECT_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "deleteProject",
-        method: FrontendHttpMethod::Delete,
-        path_template: PROJECT_PATH,
-        request_type: "DeleteProjectRequest",
-        response_type: "DeleteProjectResponse",
-        path_params: PROJECT_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "openProjectWorkContext",
-        method: FrontendHttpMethod::Post,
-        path_template: PROJECT_WORK_CONTEXT_OPEN_PATH,
-        request_type: "OpenProjectWorkContextRequest",
-        response_type: "OpenProjectWorkContextResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "renewProjectWorkContext",
-        method: FrontendHttpMethod::Post,
-        path_template: PROJECT_WORK_CONTEXT_RENEW_PATH,
-        request_type: "RenewProjectWorkContextRequest",
-        response_type: "RenewProjectWorkContextResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "createTask",
-        method: FrontendHttpMethod::Post,
-        path_template: TASKS_PATH,
-        request_type: "CreateTaskRequest",
-        response_type: "CreateTaskResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "getTask",
-        method: FrontendHttpMethod::Get,
-        path_template: TASK_PATH,
-        request_type: "GetTaskRequest",
-        response_type: "GetTaskResponse",
-        path_params: TASK_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "listTasks",
-        method: FrontendHttpMethod::Get,
-        path_template: TASKS_PATH,
-        request_type: "ListTasksRequest",
-        response_type: "ListTasksResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "updateTask",
-        method: FrontendHttpMethod::Put,
-        path_template: TASK_PATH,
-        request_type: "UpdateTaskRequest",
-        response_type: "UpdateTaskResponse",
-        path_params: TASK_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "deleteTask",
-        method: FrontendHttpMethod::Delete,
-        path_template: TASK_PATH,
-        request_type: "DeleteTaskRequest",
-        response_type: "DeleteTaskResponse",
-        path_params: TASK_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "createSession",
-        method: FrontendHttpMethod::Post,
-        path_template: SESSIONS_PATH,
-        request_type: "CreateSessionRequest",
-        response_type: "CreateSessionResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "getSession",
-        method: FrontendHttpMethod::Get,
-        path_template: SESSION_PATH,
-        request_type: "GetSessionRequest",
-        response_type: "GetSessionResponse",
-        path_params: SESSION_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "listSessions",
-        method: FrontendHttpMethod::Get,
-        path_template: SESSIONS_PATH,
-        request_type: "ListSessionsRequest",
-        response_type: "ListSessionsResponse",
-        path_params: NO_PATH_PARAMS,
-        has_json_body: false,
-    },
-    FrontendEndpoint {
-        operation_name: "updateSession",
-        method: FrontendHttpMethod::Put,
-        path_template: SESSION_PATH,
-        request_type: "UpdateSessionRequest",
-        response_type: "UpdateSessionResponse",
-        path_params: SESSION_PATH_PARAMS,
-        has_json_body: true,
-    },
-    FrontendEndpoint {
-        operation_name: "deleteSession",
-        method: FrontendHttpMethod::Delete,
-        path_template: SESSION_PATH,
-        request_type: "DeleteSessionRequest",
-        response_type: "DeleteSessionResponse",
-        path_params: SESSION_PATH_PARAMS,
-        has_json_body: false,
-    },
-];
-
-/// Returns the Rust-owned endpoint metadata exported to the generated frontend SDK.
-pub fn frontend_endpoints() -> &'static [FrontendEndpoint] {
-    FRONTEND_ENDPOINTS
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        FrontendEndpoint, FrontendHttpMethod, FrontendPathParam, PROJECT_PATH,
-        PROJECT_WORK_CONTEXT_OPEN_PATH, PROJECT_WORK_CONTEXT_RENEW_PATH, PROJECTS_PATH,
-        SESSION_PATH, SESSIONS_PATH, TASK_PATH, TASKS_PATH, frontend_endpoints,
-    };
-    use pretty_assertions::assert_eq;
-
-    /// Verifies the exported endpoint manifest matches the current CRUD route surface.
-    #[test]
-    fn exports_frontend_endpoint_manifest() {
-        assert_eq!(
-            frontend_endpoints(),
-            &[
-                FrontendEndpoint {
-                    operation_name: "createProject",
-                    method: FrontendHttpMethod::Post,
-                    path_template: PROJECTS_PATH,
-                    request_type: "CreateProjectRequest",
-                    response_type: "CreateProjectResponse",
-                    path_params: &[],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "getProject",
-                    method: FrontendHttpMethod::Get,
-                    path_template: PROJECT_PATH,
-                    request_type: "GetProjectRequest",
-                    response_type: "GetProjectResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "project_id",
-                        wire_name: "projectId",
-                    }],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "listProjects",
-                    method: FrontendHttpMethod::Get,
-                    path_template: PROJECTS_PATH,
-                    request_type: "ListProjectsRequest",
-                    response_type: "ListProjectsResponse",
-                    path_params: &[],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "updateProject",
-                    method: FrontendHttpMethod::Put,
-                    path_template: PROJECT_PATH,
-                    request_type: "UpdateProjectRequest",
-                    response_type: "UpdateProjectResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "project_id",
-                        wire_name: "projectId",
-                    }],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "deleteProject",
-                    method: FrontendHttpMethod::Delete,
-                    path_template: PROJECT_PATH,
-                    request_type: "DeleteProjectRequest",
-                    response_type: "DeleteProjectResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "project_id",
-                        wire_name: "projectId",
-                    }],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "openProjectWorkContext",
-                    method: FrontendHttpMethod::Post,
-                    path_template: PROJECT_WORK_CONTEXT_OPEN_PATH,
-                    request_type: "OpenProjectWorkContextRequest",
-                    response_type: "OpenProjectWorkContextResponse",
-                    path_params: &[],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "renewProjectWorkContext",
-                    method: FrontendHttpMethod::Post,
-                    path_template: PROJECT_WORK_CONTEXT_RENEW_PATH,
-                    request_type: "RenewProjectWorkContextRequest",
-                    response_type: "RenewProjectWorkContextResponse",
-                    path_params: &[],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "createTask",
-                    method: FrontendHttpMethod::Post,
-                    path_template: TASKS_PATH,
-                    request_type: "CreateTaskRequest",
-                    response_type: "CreateTaskResponse",
-                    path_params: &[],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "getTask",
-                    method: FrontendHttpMethod::Get,
-                    path_template: TASK_PATH,
-                    request_type: "GetTaskRequest",
-                    response_type: "GetTaskResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "task_id",
-                        wire_name: "taskId",
-                    }],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "listTasks",
-                    method: FrontendHttpMethod::Get,
-                    path_template: TASKS_PATH,
-                    request_type: "ListTasksRequest",
-                    response_type: "ListTasksResponse",
-                    path_params: &[],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "updateTask",
-                    method: FrontendHttpMethod::Put,
-                    path_template: TASK_PATH,
-                    request_type: "UpdateTaskRequest",
-                    response_type: "UpdateTaskResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "task_id",
-                        wire_name: "taskId",
-                    }],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "deleteTask",
-                    method: FrontendHttpMethod::Delete,
-                    path_template: TASK_PATH,
-                    request_type: "DeleteTaskRequest",
-                    response_type: "DeleteTaskResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "task_id",
-                        wire_name: "taskId",
-                    }],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "createSession",
-                    method: FrontendHttpMethod::Post,
-                    path_template: SESSIONS_PATH,
-                    request_type: "CreateSessionRequest",
-                    response_type: "CreateSessionResponse",
-                    path_params: &[],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "getSession",
-                    method: FrontendHttpMethod::Get,
-                    path_template: SESSION_PATH,
-                    request_type: "GetSessionRequest",
-                    response_type: "GetSessionResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "session_id",
-                        wire_name: "sessionId",
-                    }],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "listSessions",
-                    method: FrontendHttpMethod::Get,
-                    path_template: SESSIONS_PATH,
-                    request_type: "ListSessionsRequest",
-                    response_type: "ListSessionsResponse",
-                    path_params: &[],
-                    has_json_body: false,
-                },
-                FrontendEndpoint {
-                    operation_name: "updateSession",
-                    method: FrontendHttpMethod::Put,
-                    path_template: SESSION_PATH,
-                    request_type: "UpdateSessionRequest",
-                    response_type: "UpdateSessionResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "session_id",
-                        wire_name: "sessionId",
-                    }],
-                    has_json_body: true,
-                },
-                FrontendEndpoint {
-                    operation_name: "deleteSession",
-                    method: FrontendHttpMethod::Delete,
-                    path_template: SESSION_PATH,
-                    request_type: "DeleteSessionRequest",
-                    response_type: "DeleteSessionResponse",
-                    path_params: &[FrontendPathParam {
-                        rust_field_name: "session_id",
-                        wire_name: "sessionId",
-                    }],
-                    has_json_body: false,
-                },
-            ]
-        );
-    }
-
-    /// Verifies update operations describe the path/body split needed by the generated client.
-    #[test]
-    fn preserves_path_params_for_update_routes() {
-        let update_task = frontend_endpoints()
-            .iter()
-            .find(|endpoint| endpoint.operation_name == "updateTask")
-            .copied()
-            .unwrap_or_else(|| panic!("missing updateTask endpoint"));
-
-        assert_eq!(
-            update_task,
-            FrontendEndpoint {
-                operation_name: "updateTask",
-                method: FrontendHttpMethod::Put,
-                path_template: TASK_PATH,
-                request_type: "UpdateTaskRequest",
-                response_type: "UpdateTaskResponse",
-                path_params: &[FrontendPathParam {
-                    rust_field_name: "task_id",
-                    wire_name: "taskId",
-                }],
-                has_json_body: true,
-            }
-        );
-    }
-
-    /// Verifies the exported endpoint manifest omits backend-owned worktree operations.
-    #[test]
-    fn omits_worktree_endpoints_from_frontend_manifest() {
-        assert_eq!(
-            frontend_endpoints()
-                .iter()
-                .all(|endpoint| !endpoint.operation_name.contains("Worktree")),
-            true
-        );
-    }
-}
+pub const SESSION_LOAD_PATH: &str = "/api/sessions/{sessionId}/load";
+pub const SESSION_PROMPT_PATH: &str = "/api/sessions/{sessionId}/prompt";
+pub const SESSION_PERMISSION_RESPONSE_PATH: &str = "/api/sessions/{sessionId}/permissions/respond";
+pub const SESSION_STOP_PATH: &str = "/api/sessions/{sessionId}/stop";
+pub const SESSION_SWITCH_AGENT_PATH: &str = "/api/sessions/{sessionId}/agent";
+pub const SESSION_RESUME_HISTORY_PATH: &str = "/api/sessions/{sessionId}/history/resume";
+pub const AGENT_RUNTIME_STATUS_PATH: &str = "/api/agent-runtime/status";
+pub const SESSION_WARM_PATH: &str = "/api/sessions/warm";
+pub const SESSION_CONFIG_PATH: &str = "/api/sessions/{sessionId}/config";
+pub const SESSION_ATTACH_PATH: &str = "/api/sessions/{sessionId}/attach";
+pub const SKILLS_PATH: &str = "/api/skills";
+pub const SKILL_PATH: &str = "/api/skills/{skillId}";
+pub const SKILL_IMPORTS_PATH: &str = "/api/skill-imports";
+pub const SKILL_IMPORT_PATH: &str = "/api/skill-imports/{sessionId}";
+pub const SKILL_IMPORT_COMMIT_PATH: &str = "/api/skill-imports/{sessionId}/commit";
+pub const AGENTS_PATH: &str = "/api/agents";
+pub const AGENT_PATH: &str = "/api/agents/{agentId}";
+pub const AGENT_IMPORT_PREPARE_PATH: &str = "/api/agent-imports/prepare";
+pub const AGENT_IMPORT_COMMIT_PATH: &str = "/api/agent-imports/commit";
+pub const FILE_SYSTEM_DIRECTORY_PATH: &str = "/api/file-system/directory";
+pub const INSTALLED_PLUGINS_PATH: &str = "/api/plugins/installed";
+pub const WORKSPACE_DIRECTORY_PATH: &str = "/api/tasks/{taskId}/files/list";
+pub const WORKSPACE_FILE_PATH: &str = "/api/tasks/{taskId}/files/read";
+pub const WORKSPACE_SEARCH_PATH: &str = "/api/tasks/{taskId}/files/search";
+pub const WORKSPACE_WATCH_PATH: &str = "/api/tasks/{taskId}/files/watch";
+pub const GIT_IDENTITY_PATH: &str = "/api/git/identity";
+pub const WORKFLOWS_PATH: &str = "/api/workflows";
+pub const WORKFLOW_PATH: &str = "/api/workflows/{workflowId}";
+pub const WORKFLOW_DRAFT_PATH: &str = "/api/workflows/{workflowId}/draft";
+pub const WORKFLOW_PUBLISH_PATH: &str = "/api/workflows/{workflowId}/publish";
+pub const WORKFLOW_ROLLBACK_PATH: &str = "/api/workflows/{workflowId}/rollback";
+pub const WORKFLOW_ACTIVATE_PATH: &str = "/api/workflows/{workflowId}/activate";
+pub const WORKFLOW_VERSIONS_PATH: &str = "/api/workflows/{workflowId}/versions";
+pub const WORKFLOW_VERSION_PATH: &str = "/api/workflows/{workflowId}/versions/{version}";
+pub const WORKFLOW_RUNS_PATH: &str = "/api/workflow-runs";
+pub const WORKFLOW_RUN_PATH: &str = "/api/workflow-runs/{runId}";
+pub const WORKFLOW_RUN_NODES_PATH: &str = "/api/workflow-runs/{runId}/nodes";
+pub const WORKFLOW_RUN_START_PATH: &str = "/api/workflow-runs/{runId}/start";
+pub const WORKFLOW_RUN_CANCEL_PATH: &str = "/api/workflow-runs/{runId}/cancel";
+pub const WORKFLOW_RUN_RESTART_PATH: &str = "/api/workflow-runs/{runId}/restart";
+pub const WORKFLOW_RUN_INPUT_PATH: &str = "/api/workflow-runs/{runId}/input";
+pub const WORKFLOW_SNAPSHOT_PATH: &str = "/api/workflow-snapshots/{snapshotId}";

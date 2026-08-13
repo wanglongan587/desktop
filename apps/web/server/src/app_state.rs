@@ -1,16 +1,18 @@
 use crate::plugin_api::security::PluginSecurity;
 use crate::plugin_api::{InvocationRegistry, PluginBackend, PluginScopeResolver};
-use crate::service::{ProjectApi, ProjectWorkContextApi, SessionApi, TaskApi};
+use crate::service::{FileSystemApi, WorkspaceFileApi};
+use ora_backend::Backend;
+use ora_plugin_manager::PluginManager;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Holds the shared state that HTTP handlers need to serve requests.
 #[derive(Clone)]
 pub struct AppState {
-    project_api: Arc<ProjectApi>,
-    project_work_context_api: Arc<ProjectWorkContextApi>,
-    task_api: Arc<TaskApi>,
-    session_api: Arc<SessionApi>,
+    backend: Backend,
+    file_system_api: Arc<FileSystemApi>,
+    workspace_file_api: Arc<WorkspaceFileApi>,
+    plugin_manager: Arc<PluginManager>,
     plugin_scope_resolver: PluginScopeResolver,
     ready: Arc<AtomicBool>,
     plugin_backend: Option<Arc<dyn PluginBackend>>,
@@ -21,17 +23,17 @@ pub struct AppState {
 impl AppState {
     /// Creates one shared application state value with readiness disabled until bootstrap completes.
     pub(crate) fn new(
-        project_api: Arc<ProjectApi>,
-        project_work_context_api: Arc<ProjectWorkContextApi>,
-        task_api: Arc<TaskApi>,
-        session_api: Arc<SessionApi>,
+        backend: Backend,
+        file_system_api: Arc<FileSystemApi>,
+        workspace_file_api: Arc<WorkspaceFileApi>,
+        plugin_manager: Arc<PluginManager>,
         plugin_scope_resolver: PluginScopeResolver,
     ) -> Self {
         Self {
-            project_api,
-            project_work_context_api,
-            task_api,
-            session_api,
+            backend,
+            file_system_api,
+            workspace_file_api,
+            plugin_manager,
             plugin_scope_resolver,
             ready: Arc::new(AtomicBool::new(false)),
             plugin_backend: None,
@@ -67,29 +69,23 @@ impl AppState {
         &self.plugin_scope_resolver
     }
 
-    /// Returns the shared project API that routes delegate into.
-    pub fn project_api(&self) -> &Arc<ProjectApi> {
-        &self.project_api
+    /// Returns the shared persisted backend used by the five common CRUD route families.
+    pub fn backend(&self) -> &Backend {
+        &self.backend
     }
 
-    /// Returns the shared project work context API that routes delegate into.
-    pub fn project_work_context_api(&self) -> &Arc<ProjectWorkContextApi> {
-        &self.project_work_context_api
+    /// Returns the shared read-only filesystem API used by the web path picker.
+    pub fn file_system_api(&self) -> &Arc<FileSystemApi> {
+        &self.file_system_api
     }
 
-    /// Returns the shared task API that routes delegate into.
-    pub fn task_api(&self) -> &Arc<TaskApi> {
-        &self.task_api
+    /// Returns the shared task-workspace filesystem API used by explorer and viewer routes.
+    pub fn workspace_file_api(&self) -> &Arc<WorkspaceFileApi> {
+        &self.workspace_file_api
     }
-
-    /// Returns the shared session API that routes delegate into.
-    pub fn session_api(&self) -> &Arc<SessionApi> {
-        &self.session_api
-    }
-
-    /// Starts terminal runtime shutdown for every active session owned by the server.
-    pub fn shutdown_terminals(&self) {
-        self.session_api.shutdown_terminals();
+    /// Returns the immutable installed-plugin snapshot captured during bootstrap.
+    pub fn plugin_manager(&self) -> &Arc<PluginManager> {
+        &self.plugin_manager
     }
 
     /// Marks the runtime as ready after bootstrap finishes successfully.

@@ -1,81 +1,103 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
-import { Checkbox } from "./checkbox/checkbox";
-import { Input } from "./input/input";
-import { NativeSelect } from "./select/select-native";
-import { TextArea } from "./textarea/textarea";
-import { Toggle } from "./toggle/toggle";
+import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { describe, expect, it, vi } from "vitest"
+
+import { Checkbox } from "../checkbox"
+import { Input } from "../input"
+import { NativeSelect, NativeSelectOption } from "../native-select"
+import { Textarea } from "../textarea"
+import { Toggle } from "../toggle"
 
 describe("form controls", () => {
-    it("changes checkboxes through their accessible labels", async () => {
-        const onChange = vi.fn();
-        const user = userEvent.setup();
-        render(<Checkbox label="Enable notifications" onChange={onChange} />);
+  it("changes checkboxes through their accessible labels", async () => {
+    const onCheckedChange = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <label>
+        <Checkbox onCheckedChange={onCheckedChange} />
+        Enable notifications
+      </label>
+    )
 
-        const checkbox = screen.getByRole("checkbox", { name: "Enable notifications" });
-        await user.click(checkbox);
+    const checkbox = screen.getByRole("checkbox", {
+      name: "Enable notifications",
+    })
+    await user.click(checkbox)
 
-        expect(checkbox).toBeChecked();
-        expect(onChange).toHaveBeenCalledWith(true);
-    });
+    expect(checkbox).toBeChecked()
+    expect(onCheckedChange).toHaveBeenCalledWith(true, expect.anything())
+  })
 
-    it("changes toggles from the keyboard", async () => {
-        const onChange = vi.fn();
-        const user = userEvent.setup();
-        render(<Toggle label="Compact mode" onChange={onChange} />);
+  it("changes toggles from the keyboard", async () => {
+    const onPressedChange = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <Toggle aria-label="Compact mode" onPressedChange={onPressedChange}>
+        Compact
+      </Toggle>
+    )
 
-        const toggle = screen.getByRole("switch", { name: "Compact mode" });
-        toggle.focus();
-        await user.keyboard(" ");
+    const toggle = screen.getByRole("button", { name: "Compact mode" })
+    toggle.focus()
+    await user.keyboard(" ")
 
-        expect(toggle).toBeChecked();
-        expect(onChange).toHaveBeenCalledWith(true);
-    });
+    expect(toggle).toHaveAttribute("aria-pressed", "true")
+    expect(onPressedChange).toHaveBeenCalledWith(true, expect.anything())
+  })
 
-    it("binds input labels, supports typing, and reveals passwords", async () => {
-        const user = userEvent.setup();
-        render(<Input label="Password" type="password" isRequired />);
+  it("binds input labels and supports typing", async () => {
+    const user = userEvent.setup()
+    render(
+      <label htmlFor="password">
+        Password
+        <Input id="password" type="password" required />
+      </label>
+    )
 
-        const input = screen.getByLabelText(/Password/);
-        expect(input).toHaveAttribute("type", "password");
-        expect(input).toBeRequired();
+    const input = screen.getByLabelText("Password")
+    await user.type(input, "secret")
 
-        await user.type(input, "secret");
-        await user.click(screen.getByRole("button", { name: "Toggle password visibility" }));
+    expect(input).toHaveValue("secret")
+    expect(input).toHaveAttribute("type", "password")
+    expect(input).toBeRequired()
+  })
 
-        expect(input).toHaveValue("secret");
-        expect(input).toHaveAttribute("type", "text");
-    });
+  it("binds textarea help text to an editable field", async () => {
+    const user = userEvent.setup()
+    render(
+      <>
+        <label htmlFor="description">Description</label>
+        <Textarea id="description" aria-describedby="description-hint" />
+        <span id="description-hint">Describe the task</span>
+      </>
+    )
 
-    it("binds textarea help text to an editable field", async () => {
-        const user = userEvent.setup();
-        render(<TextArea label="Description" hint="Describe the task" />);
+    const textarea = screen.getByRole("textbox", { name: "Description" })
+    await user.type(textarea, "Investigate the failure")
 
-        const textarea = screen.getByRole("textbox", { name: "Description" });
-        await user.type(textarea, "Investigate the failure");
+    expect(textarea).toHaveValue("Investigate the failure")
+    expect(textarea).toHaveAccessibleDescription("Describe the task")
+  })
 
-        expect(textarea).toHaveValue("Investigate the failure");
-        expect(screen.getByText("Describe the task")).toBeVisible();
-    });
+  it("selects a native option by its visible label", async () => {
+    const user = userEvent.setup()
+    render(
+      <label>
+        Environment
+        <NativeSelect>
+          <NativeSelectOption value="dev">Development</NativeSelectOption>
+          <NativeSelectOption value="prod">Production</NativeSelectOption>
+          <NativeSelectOption value="retired" disabled>
+            Retired
+          </NativeSelectOption>
+        </NativeSelect>
+      </label>
+    )
 
-    it("selects a native option by its visible label", async () => {
-        const user = userEvent.setup();
-        render(
-            <NativeSelect
-                label="Environment"
-                options={[
-                    { label: "Development", value: "dev" },
-                    { label: "Production", value: "prod" },
-                    { label: "Retired", value: "retired", disabled: true },
-                ]}
-            />,
-        );
+    const select = screen.getByRole("combobox", { name: "Environment" })
+    await user.selectOptions(select, "prod")
 
-        const select = screen.getByRole("combobox", { name: "Environment" });
-        await user.selectOptions(select, "prod");
-
-        expect(select).toHaveValue("prod");
-        expect(screen.getByRole("option", { name: "Retired" })).toBeDisabled();
-    });
-});
+    expect(select).toHaveValue("prod")
+    expect(screen.getByRole("option", { name: "Retired" })).toBeDisabled()
+  })
+})

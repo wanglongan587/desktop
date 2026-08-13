@@ -1,4 +1,4 @@
-use ora_application::{ProjectRepository, ProjectRepositoryError};
+use ora_application::{ProjectRepository, RepositoryError};
 use ora_domain::{AuditFields, Project, ProjectId};
 use rusqlite::{Row, params};
 
@@ -19,7 +19,7 @@ impl SqliteProjectRepository {
 
 impl ProjectRepository for SqliteProjectRepository {
     /// Inserts a new project row and returns the stored project snapshot.
-    fn create_project(&self, project: Project) -> Result<Project, ProjectRepositoryError> {
+    fn create_project(&self, project: Project) -> Result<Project, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 connection.execute(
@@ -41,10 +41,7 @@ impl ProjectRepository for SqliteProjectRepository {
     }
 
     /// Loads one visible project row by identifier.
-    fn find_project(
-        &self,
-        project_id: &ProjectId,
-    ) -> Result<Option<Project>, ProjectRepositoryError> {
+    fn find_project(&self, project_id: &ProjectId) -> Result<Option<Project>, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
@@ -62,32 +59,8 @@ impl ProjectRepository for SqliteProjectRepository {
             .map_err(project_repository_error_from_database)
     }
 
-    /// Loads one visible project row by its exact persisted name.
-    fn find_project_by_name(
-        &self,
-        project_name: &str,
-    ) -> Result<Option<Project>, ProjectRepositoryError> {
-        self.pool
-            .with_connection(|connection| {
-                let mut statement = connection.prepare(
-                    "SELECT id, name, root_path, created_at, updated_at, is_deleted
-                     FROM projects
-                     WHERE name = ?1 AND is_deleted = 0
-                     ORDER BY created_at, id
-                     LIMIT 1",
-                )?;
-                let mut rows = statement.query(params![project_name])?;
-
-                match rows.next()? {
-                    Some(row) => Ok(Some(map_project_row(row)?)),
-                    None => Ok(None),
-                }
-            })
-            .map_err(project_repository_error_from_database)
-    }
-
     /// Lists every visible project row in stable storage order.
-    fn list_projects(&self) -> Result<Vec<Project>, ProjectRepositoryError> {
+    fn list_projects(&self) -> Result<Vec<Project>, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
@@ -109,7 +82,7 @@ impl ProjectRepository for SqliteProjectRepository {
     }
 
     /// Replaces the persisted project snapshot identified by the provided id.
-    fn update_project(&self, project: Project) -> Result<Project, ProjectRepositoryError> {
+    fn update_project(&self, project: Project) -> Result<Project, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let updated_rows = connection.execute(
@@ -140,7 +113,7 @@ impl ProjectRepository for SqliteProjectRepository {
         &self,
         project_id: &ProjectId,
         deleted_at: i64,
-    ) -> Result<bool, ProjectRepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let updated_rows = connection.execute(
@@ -169,6 +142,6 @@ fn map_project_row(row: &Row<'_>) -> Result<Project, crate::DatabaseError> {
 }
 
 /// Converts shared database-layer failures into project repository errors.
-fn project_repository_error_from_database(error: crate::DatabaseError) -> ProjectRepositoryError {
-    ProjectRepositoryError::OperationFailed(error.to_string())
+fn project_repository_error_from_database(error: crate::DatabaseError) -> RepositoryError {
+    RepositoryError::new(error)
 }

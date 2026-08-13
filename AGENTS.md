@@ -23,7 +23,7 @@ Ora is an IDE for AI Agent. In the crates folder where the rust code lives:
 - Never hardcode path separators or concatenate path strings manually. Always use `Path`, `PathBuf`, and `.join()` to construct and manipulate filesystem paths.
 - Newly added traits should include doc comments that explain their role and how implementations are expected to use them.
 - When writing tests, prefer comparing the equality of entire objects over fields one by one.
-- When making a change that adds or changes an API, ensure that the documentation in the `docs/` folder is up to date if applicable.
+- When making a change that adds or changes behavior, ensure that the documentation in the `docs/` folder is up to date if applicable.
 - Prefer private modules and explicitly exported public crate API.
 - Do not create small helper methods that are referenced only once.
 - Avoid large modules:
@@ -33,11 +33,33 @@ Ora is an IDE for AI Agent. In the crates folder where the rust code lives:
     the existing file unless there is a strong documented reason not to.
   - When extracting code from a large module, move the related tests and module/type docs toward
     the new implementation so the invariants stay close to the code that owns them.
+- Use local time instead of UTC time.
+- Use ora-logging wrapper macros instead of `tracing` macros. Use `ora_logging::clock::now_local` instead of `OffsetDateTime::now_local()`.
+- Before implementing path validation or normalization, prefer the shared `ora-fs` path capabilities over crate-local logic. If `ora-fs` does not yet provide the required capability, prefer extending `ora-fs` and then consuming that shared capability instead of implementing it locally in the caller.
+
+## Module READMEs
+
+- Every crate under `crates/` must have an English `README.md` in its crate root.
+- Every directory-based production Rust module under a crate's `src/` tree must have an English `README.md` in the module directory. Single-file modules do not need to be converted into directories; their responsibilities should be covered by the nearest parent README.
+- Test, fixture, generated, example, and other non-production directories do not require module READMEs.
+- `crates/contracts`, `crates/domain`, and `crates/pty`, including their descendant modules, are intentional exceptions. Their type definitions and code-level documentation are the primary documentation because they do not own architectural orchestration that benefits from separate README files.
+- When adding a crate or directory-based module, add its README in the same change. When changing a module's responsibilities, boundaries, core flows, or interactions, update the corresponding README in the same change.
+- READMEs document stable facts that should remain true across internal refactors: responsibilities, non-responsibilities, public boundaries, key invariants, lifecycle, important failure semantics, and module interactions. Put local implementation rationale, algorithm details, data-structure choices, specialized branches, performance trade-offs, and temporary implementation constraints in English code comments instead.
 
 ## Tests
 
-- run format: `cargo fmt --all`
-- run full tests: `task test`
+`task test` runs all frontend, backend, and Desktop lint and test tasks. It can take a
+long time, so prefer the smallest relevant task while iterating and run the full task
+before considering a repository-wide change complete.
+
+- Frontend lint: `task lint:frontend`
+- Frontend tests: `task test:frontend`
+- Backend lint and formatting: `task lint:backend`
+- Backend tests: `task test:backend`
+- Desktop lint: `task lint:desktop`
+- Desktop tests: `task test:desktop`
+- All lint tasks: `task lint`
+- Full lint and test suite (long-running): `task test`
 
 ### Test assertions
 

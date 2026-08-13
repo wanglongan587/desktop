@@ -102,7 +102,12 @@ impl BackendRuntime {
             None
         };
 
-        let manager_config = PluginManagerConfig::new(runtime_config.data_dir());
+        let data_dir = runtime_config
+            .database()
+            .path()
+            .parent()
+            .unwrap_or_else(|| Path::new("."));
+        let manager_config = PluginManagerConfig::new(data_dir);
         let lease = Arc::new(
             ManagerLease::acquire(&manager_config).map_err(WebBootstrapError::PluginBootstrap)?,
         );
@@ -244,7 +249,6 @@ impl BackendRuntime {
         app_state.mark_unready();
         plugin_backend.close_admission();
         shutdown.cancel();
-        app_state.shutdown_terminals();
         app_state.cancel_plugin_invocations().await;
         let graceful = async move {
             let (plugin_result, server_result) = tokio::join!(plugin_backend.shutdown(), server);

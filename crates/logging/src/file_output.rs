@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use time::{Date, macros::format_description};
-use tracing_appender::non_blocking::{NonBlocking, WorkerGuard};
+use tracing_appender::non_blocking::{NonBlocking, NonBlockingBuilder, WorkerGuard};
 
 use crate::{FileLoggingConfig, FileSystemAction, LoggingInitError, RotationPolicy};
 
@@ -14,6 +14,9 @@ pub(crate) struct PreparedFileOutput {
 }
 
 /// Creates the rotating file writer and applies retention cleanup before the sink starts writing.
+///
+/// The writer is non-blocking and non-lossy: routine IO runs on a background worker, and a full
+/// channel exerts backpressure on callers instead of dropping lines.
 pub(crate) fn prepare_file_output(
     config: &FileLoggingConfig,
 ) -> Result<PreparedFileOutput, LoggingInitError> {
@@ -26,7 +29,10 @@ pub(crate) fn prepare_file_output(
             tracing_appender::rolling::daily(active_path.directory(), active_path.file_name())
         }
     };
-    let (writer, guard) = tracing_appender::non_blocking(appender);
+    // Prefer backpressure over dropping when the queue is full so file logs stay complete.
+    let (writer, guard) = NonBlockingBuilder::default()
+        .lossy(/*is_lossy*/ false)
+        .finish(appender);
 
     Ok(PreparedFileOutput { writer, guard })
 }

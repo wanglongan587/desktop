@@ -1,8 +1,8 @@
 use crate::{
-    AgentId, Artifact, ArtifactId, AuditFields, DomainModelError, Project, ProjectId,
-    ProjectWorkContext, ProjectWorkContextId, ProjectWorkContextSurface, Session, SessionId,
-    SessionStatus, Task, TaskId, TaskStatus, VirtualEntry, VirtualEntryId, VirtualEntryKind,
-    VirtualFolder, VirtualFolderId, Worktree, WorktreeActivity, WorktreeId,
+    AgentCli, AgentDefinition, AgentDefinitionId, Artifact, ArtifactId, AuditFields,
+    DomainModelError, HistoryState, Project, ProjectId, Session, SessionId, SessionStatus, Skill,
+    SkillId, Task, TaskId, TaskStatus, TaskType, VirtualEntry, VirtualEntryId, VirtualEntryKind,
+    VirtualFolder, VirtualFolderId, Worktree, WorktreeActivity, WorktreeBaseline, WorktreeId,
 };
 use pretty_assertions::assert_eq;
 
@@ -20,6 +20,8 @@ fn constructs_schema_backed_entities() {
         WorktreeId::new("worktree-1"),
         TaskId::new("task-1"),
         Some("feature/domain-models".to_string()),
+        Some("/worktrees/task-1".to_string()),
+        WorktreeBaseline::recorded("base-commit").unwrap(),
         WorktreeActivity::Active,
         audit_fields.clone(),
     );
@@ -44,15 +46,6 @@ fn constructs_schema_backed_entities() {
         Some("proposal".to_string()),
         audit_fields.clone(),
     );
-    let project_work_context = ProjectWorkContext::new(
-        ProjectWorkContextId::new("project-work-context-1"),
-        ProjectWorkContextSurface::Web,
-        "main",
-        project.id.clone(),
-        1_700_000_000_600,
-        1_700_000_000_000,
-        1_700_000_000_500,
-    );
     let entry = VirtualEntry::new(
         VirtualEntryId::new("entry-1"),
         virtual_folder.id.clone(),
@@ -65,11 +58,26 @@ fn constructs_schema_backed_entities() {
     let session = Session::new(
         SessionId::new("session-1"),
         task.id.clone(),
-        AgentId::new("codex"),
-        Some("agent-session-1".to_string()),
+        AgentCli::OpenCode,
+        "agent-session-1",
         SessionStatus::Running,
         audit_fields.clone(),
     );
+    let skill = Skill::new(
+        SkillId::new("skill-1"),
+        "review",
+        "Reviews implementation changes",
+        audit_fields.clone(),
+    )
+    .unwrap();
+    let agent_definition = AgentDefinition::new(
+        AgentDefinitionId::new("agent-definition-1"),
+        "opencode",
+        "OpenCode agent configuration",
+        "",
+        audit_fields.clone(),
+    )
+    .unwrap();
 
     assert_eq!(
         project,
@@ -86,6 +94,8 @@ fn constructs_schema_backed_entities() {
             id: WorktreeId::new("worktree-1"),
             task_id: TaskId::new("task-1"),
             branch_name: Some("feature/domain-models".to_string()),
+            checkout_root: Some("/worktrees/task-1".to_string()),
+            baseline: WorktreeBaseline::recorded("base-commit").unwrap(),
             activity: WorktreeActivity::Active,
             audit_fields: audit_fields.clone(),
         }
@@ -97,6 +107,8 @@ fn constructs_schema_backed_entities() {
             project_id: ProjectId::new("project-1"),
             title: "Implement domain models".to_string(),
             status: TaskStatus::Doing,
+            task_type: TaskType::Default,
+            workflow_run_id: None,
             worktree_id: Some(WorktreeId::new("worktree-1")),
             audit_fields: audit_fields.clone(),
         }
@@ -121,18 +133,6 @@ fn constructs_schema_backed_entities() {
         }
     );
     assert_eq!(
-        project_work_context,
-        ProjectWorkContext {
-            id: ProjectWorkContextId::new("project-work-context-1"),
-            surface: ProjectWorkContextSurface::Web,
-            window_id: "main".to_string(),
-            project_id: ProjectId::new("project-1"),
-            lease_expires_at: 1_700_000_000_600,
-            created_at: 1_700_000_000_000,
-            updated_at: 1_700_000_000_500,
-        }
-    );
-    assert_eq!(
         entry,
         VirtualEntry {
             id: VirtualEntryId::new("entry-1"),
@@ -149,35 +149,111 @@ fn constructs_schema_backed_entities() {
         Session {
             id: SessionId::new("session-1"),
             task_id: TaskId::new("task-1"),
-            agent_id: AgentId::new("codex"),
-            agent_session_id: Some("agent-session-1".to_string()),
+            agent_cli: AgentCli::OpenCode,
+            agent_session_id: "agent-session-1".to_string(),
+            title: None,
             status: SessionStatus::Running,
+            history_state: HistoryState::Writable,
+            audit_fields: audit_fields.clone(),
+        }
+    );
+    assert_eq!(
+        skill,
+        Skill {
+            id: SkillId::new("skill-1"),
+            name: "review".to_string(),
+            description: "Reviews implementation changes".to_string(),
+            audit_fields: audit_fields.clone(),
+        }
+    );
+    assert_eq!(
+        agent_definition,
+        AgentDefinition {
+            id: AgentDefinitionId::new("agent-definition-1"),
+            name: "opencode".to_string(),
+            description: "OpenCode agent configuration".to_string(),
+            content: String::new(),
             audit_fields,
         }
     );
 }
 
-/// Confirms the typed session agent identifier still serializes as the existing string shape.
+/// Verifies configurable resource constructors reject names that cannot identify a resource.
 #[test]
-fn serializes_agent_id_as_a_transparent_string() {
-    let serialized = serde_json::to_string(&AgentId::terminal()).unwrap();
+fn rejects_blank_skill_and_agent_definition_names() {
+    let audit_fields = AuditFields::new(1, 1, false);
 
-    assert_eq!(serialized, "\"terminal\"");
     assert_eq!(
-        serde_json::from_str::<AgentId>(&serialized).unwrap(),
-        AgentId::terminal()
+        Skill::new(SkillId::new("skill-1"), "  ", "", audit_fields.clone()),
+        Err(DomainModelError::EmptySkillName)
+    );
+    assert_eq!(
+        AgentDefinition::new(
+            AgentDefinitionId::new("agent-definition-1"),
+            "\t",
+            "",
+            "",
+            audit_fields,
+        ),
+        Err(DomainModelError::EmptyAgentDefinitionName)
+    );
+}
+
+/// Verifies CLI identities use the reviewed namespaced database representation.
+#[test]
+fn maps_agent_cli_database_values() {
+    assert_eq!(
+        AgentCli::ALL.map(AgentCli::database_value),
+        [
+            "ora-space.opencode",
+            "ora-space.nga",
+            "ora-space.codeagentcli",
+            "ora-space.claude",
+            "ora-space.codex",
+        ]
+    );
+    assert_eq!(
+        [
+            "ora-space.opencode",
+            "ora-space.nga",
+            "ora-space.codeagentcli",
+            "ora-space.claude",
+            "ora-space.codex",
+        ]
+        .map(AgentCli::from_database_value),
+        [
+            Ok(AgentCli::OpenCode),
+            Ok(AgentCli::Nga),
+            Ok(AgentCli::CodeAgentCli),
+            Ok(AgentCli::Claude),
+            Ok(AgentCli::Codex),
+        ]
+    );
+    assert_eq!(
+        AgentCli::from_database_value("opencode"),
+        Err(DomainModelError::InvalidAgentCli("opencode".to_string()))
+    );
+}
+
+/// Verifies only Ora's own CLIs require the `acp` subcommand; the Claude/Codex
+/// adapter binaries speak ACP directly with no launch arguments.
+#[test]
+fn maps_agent_cli_launch_arguments() {
+    assert_eq!(
+        AgentCli::ALL.map(AgentCli::launch_arguments),
+        [
+            ["acp"].as_slice(),
+            ["acp"].as_slice(),
+            ["acp"].as_slice(),
+            [].as_slice(),
+            [].as_slice(),
+        ]
     );
 }
 
 /// Confirms every categorical enum round-trips to the integer encoding expected by SQLite.
 #[test]
 fn round_trips_database_backed_enums() {
-    assert_eq!(
-        ProjectWorkContextSurface::from_database_value("web"),
-        Ok(ProjectWorkContextSurface::Web)
-    );
-    assert_eq!(ProjectWorkContextSurface::Tauri.database_value(), "tauri");
-
     assert_eq!(TaskStatus::from_database_value(0), Ok(TaskStatus::Todo));
     assert_eq!(TaskStatus::Doing.database_value(), 1);
     assert_eq!(TaskStatus::Done.database_value(), 2);
@@ -205,10 +281,8 @@ fn round_trips_database_backed_enums() {
 #[test]
 fn rejects_invalid_database_values() {
     assert_eq!(
-        ProjectWorkContextSurface::from_database_value("desktop"),
-        Err(DomainModelError::InvalidProjectWorkContextSurface(
-            "desktop".to_string()
-        ))
+        WorktreeBaseline::recorded("  "),
+        Err(DomainModelError::EmptyWorktreeBaseline)
     );
     assert_eq!(
         TaskStatus::from_database_value(7),

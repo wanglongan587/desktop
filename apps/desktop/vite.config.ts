@@ -1,18 +1,30 @@
 import { defineConfig } from 'vite'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { fileURLToPath } from 'node:url'
+import * as path from 'node:path'
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./web", import.meta.url)),
-    },
+    alias: [
+      { find: "@", replacement: path.resolve(__dirname, "./web") },
+      { find: /^@ora\/app-shell$/, replacement: path.resolve(__dirname, "../../packages/app-shell/src/index.ts") },
+      { find: /^@ora\/chat$/, replacement: path.resolve(__dirname, "../../packages/chat/src/index.ts") },
+        { find: /^@ora\/contracts$/, replacement: path.resolve(__dirname, "../../packages/contracts/src/index.ts") },
+      { find: /^@ora\/ui$/, replacement: path.resolve(__dirname, "../../packages/ui/src/index.ts") },
+      { find: /^@ora\/workflow-mock$/, replacement: path.resolve(__dirname, "../../packages/workflow-mock/src/index.ts") },
+      { find: /^@ora\/workflow-runtime$/, replacement: path.resolve(__dirname, "../../packages/workflow-runtime/src/index.ts") },
+      { find: /^@ora\/workflow-runtime\/memory$/, replacement: path.resolve(__dirname, "../../packages/workflow-runtime/src/memory.ts") },
+    ],
   },
   server: {
     host: "0.0.0.0",
+    watch: {
+      // The Tauri Rust build target dir is constantly rewritten by cargo; watching
+      // it on Windows raises EBUSY and crashes the Vite dev watcher.
+      ignored: ["**/src-tauri/target/**"],
+    },
     proxy: {
       "/api": {
         target: "http://localhost:21688",

@@ -11,8 +11,7 @@
     "test:desktop-e2e": "wdio run wdio.desktop.conf.ts",
     "test:evidence": "node --test scripts/collect-test-evidence.test.mjs",
     "collect:evidence": "node scripts/collect-test-evidence.mjs",
-    "prepare": "husky",
-    "tauri": "pnpm --filter @ora/desktop tauri"
+    "prepare": "husky"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",

@@ -177,7 +177,7 @@ pub(crate) fn parse_agent_error(
                     plugin_id: plugin_id.clone(),
                     request_id: request_id.to_owned(),
                     message: error.message,
-                    data,
+                    data: Box::new(data),
                 },
                 None => PluginError::AgentContractViolation {
                     plugin_id: plugin_id.clone(),

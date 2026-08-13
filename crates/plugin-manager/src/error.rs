@@ -109,7 +109,7 @@ pub enum PluginError {
         plugin_id: PluginId,
         request_id: String,
         message: String,
-        data: AgentBusinessErrorData,
+        data: Box<AgentBusinessErrorData>,
     },
     #[error("plugin transport failed for {request_id} at {stage:?}")]
     TransportFailed {

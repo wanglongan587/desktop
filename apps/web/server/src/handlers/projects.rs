@@ -4,8 +4,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use ora_contracts::{
     CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
-    GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse,
-    UpdateProjectRequest, UpdateProjectResponse,
+    GetProjectRequest, GetProjectResponse, ListProjectBranchesRequest, ListProjectBranchesResponse,
+    ListProjectsRequest, ListProjectsResponse, UpdateProjectRequest, UpdateProjectResponse,
 };
 use serde::Deserialize;
 
@@ -21,7 +21,6 @@ pub struct ProjectPath {
 #[serde(rename_all = "camelCase")]
 pub struct UpdateProjectBody {
     name: String,
-    root_path: String,
 }
 
 /// Creates one project by forwarding the request body into the application layer.
@@ -30,7 +29,7 @@ pub async fn create_project(
     Json(request): Json<CreateProjectRequest>,
 ) -> Result<Json<CreateProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .create_project(request)
         .map(Json)
         .map_err(WebApiError::from)
@@ -42,7 +41,7 @@ pub async fn get_project(
     Path(path): Path<ProjectPath>,
 ) -> Result<Json<GetProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .get_project(GetProjectRequest {
             project_id: path.project_id,
         })
@@ -55,8 +54,22 @@ pub async fn list_projects(
     State(app_state): State<AppState>,
 ) -> Result<Json<ListProjectsResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .list_projects(ListProjectsRequest {})
+        .map(Json)
+        .map_err(WebApiError::from)
+}
+
+/// Lists refreshed local and remote refs available as bases for task worktree creation.
+pub async fn list_project_branches(
+    State(app_state): State<AppState>,
+    Path(path): Path<ProjectPath>,
+) -> Result<Json<ListProjectBranchesResponse>, WebApiError> {
+    app_state
+        .backend()
+        .list_project_branches(ListProjectBranchesRequest {
+            project_id: path.project_id,
+        })
         .map(Json)
         .map_err(WebApiError::from)
 }
@@ -68,11 +81,10 @@ pub async fn update_project(
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<UpdateProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .update_project(UpdateProjectRequest {
             project_id: path.project_id,
             name: body.name,
-            root_path: body.root_path,
         })
         .map(Json)
         .map_err(WebApiError::from)
@@ -84,10 +96,11 @@ pub async fn delete_project(
     Path(path): Path<ProjectPath>,
 ) -> Result<Json<DeleteProjectResponse>, WebApiError> {
     app_state
-        .project_api()
+        .backend()
         .delete_project(DeleteProjectRequest {
             project_id: path.project_id,
         })
+        .await
         .map(Json)
         .map_err(WebApiError::from)
 }

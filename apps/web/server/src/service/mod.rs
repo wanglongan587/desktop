@@ -1,10 +1,5 @@
-mod project;
-mod project_work_context;
-mod session;
-mod task;
-mod task_worktree;
+mod file_system;
+mod workspace_file;
 
-pub use project::ProjectApi;
-pub use project_work_context::ProjectWorkContextApi;
-pub use session::SessionApi;
-pub use task::TaskApi;
+pub use file_system::FileSystemApi;
+pub use workspace_file::WorkspaceFileApi;

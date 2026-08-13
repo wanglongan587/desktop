@@ -23,6 +23,53 @@ pub const AGENT_INVOCATIONS_PATH: &str = "/api/agent-invocations";
 pub const AGENT_INVOCATION_PATH: &str = "/api/agent-invocations/{id}";
 pub const INVOCATION_ID_HEADER: &str = "x-ora-invocation-id";
 
+/// Describes one agent contribution from an installed plugin package.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "plugin.ts")]
+pub struct InstalledPluginAgent {
+    pub id: String,
+    pub display_name: String,
+    pub contract_version: u32,
+}
+
+/// Describes one installed plugin discovered from its package manifest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "plugin.ts")]
+pub struct InstalledPlugin {
+    pub id: String,
+    pub package_name: String,
+    pub display_name: String,
+    pub version: String,
+    pub kind: String,
+    pub main: String,
+    pub agents: Vec<InstalledPluginAgent>,
+}
+
+/// Requests the immutable startup snapshot of installed plugin packages.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "plugin.ts")]
+pub struct ListInstalledPluginsRequest {}
+
+/// Returns every valid installed plugin in stable identifier order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "plugin.ts")]
+pub struct ListInstalledPluginsResponse {
+    pub plugins: Vec<InstalledPlugin>,
+}
+
+/// Exports the mainline installed-plugin snapshot contracts through ts-rs.
+pub(crate) fn export(config: &Config) -> Result<(), ExportError> {
+    InstalledPluginAgent::export(config)?;
+    InstalledPlugin::export(config)?;
+    ListInstalledPluginsRequest::export(config)?;
+    ListInstalledPluginsResponse::export(config)?;
+    Ok(())
+}
+
 /// Requests inert candidate discovery through configured Host root identifiers only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]

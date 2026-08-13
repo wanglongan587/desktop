@@ -1,5 +1,6 @@
 packages:
   - 'apps/*'
+  - 'apps/web/client'
   - 'packages/*'
 overrides:
   serialize-javascript: 7.0.3

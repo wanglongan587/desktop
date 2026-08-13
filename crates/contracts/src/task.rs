@@ -11,6 +11,30 @@ pub enum TaskStatus {
     Done,
 }
 
+/// Selects the task kind so the frontend can distinguish workflow-run tasks from ordinary tasks.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "task.ts")]
+pub enum TaskType {
+    /// An ordinary task created through the generic task path.
+    #[default]
+    Default,
+    /// A task that backs one workflow run.
+    Workflow,
+}
+
+/// Selects the filesystem context used when a task starts an agent session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "task.ts")]
+pub enum TaskWorkspaceMode {
+    /// Creates an isolated linked Git worktree owned by the task.
+    #[default]
+    Worktree,
+    /// Uses the owning project's root directory directly without creating a worktree.
+    ProjectRoot,
+}
+
 /// Describes the public task payload shared across adapter responses.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -20,6 +44,10 @@ pub struct Task {
     pub project_id: String,
     pub title: String,
     pub status: TaskStatus,
+    pub workspace_mode: TaskWorkspaceMode,
+    #[serde(rename = "type")]
+    pub task_type: TaskType,
+    pub workflow_run_id: Option<String>,
 }
 
 /// Carries the app-facing payload for task creation requests.
@@ -30,6 +58,12 @@ pub struct CreateTaskRequest {
     pub project_id: String,
     pub title: String,
     pub status: TaskStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub workspace_mode: Option<TaskWorkspaceMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub base_branch: Option<String>,
 }
 
 /// Returns the created task after a successful create request.
@@ -56,6 +90,33 @@ pub struct GetTaskResponse {
     pub task: Task,
 }
 
+/// Requests the active workspace for one task without exposing checkout paths to callers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "task.ts")]
+pub struct GetTaskWorkspaceRequest {
+    pub task_id: String,
+}
+
+/// Describes the absolute checkout root and branch the backend resolved for one task.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "task.ts")]
+pub struct TaskWorkspace {
+    pub root_path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub branch_name: Option<String>,
+}
+
+/// Returns one task-owned workspace without exposing repository internals.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "task.ts")]
+pub struct GetTaskWorkspaceResponse {
+    pub workspace: TaskWorkspace,
+}
+
 /// Requests the full visible task list.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
@@ -76,7 +137,6 @@ pub struct ListTasksResponse {
 #[ts(export_to = "task.ts")]
 pub struct UpdateTaskRequest {
     pub task_id: String,
-    pub project_id: String,
     pub title: String,
     pub status: TaskStatus,
 }
@@ -105,11 +165,34 @@ pub struct DeleteTaskResponse {
     pub task_id: String,
 }
 
+/// Exports every TypeScript binding declared in this module into the target directory.
+pub(crate) fn export(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    TaskStatus::export(config)?;
+    TaskType::export(config)?;
+    TaskWorkspaceMode::export(config)?;
+    Task::export(config)?;
+    CreateTaskRequest::export(config)?;
+    CreateTaskResponse::export(config)?;
+    GetTaskRequest::export(config)?;
+    GetTaskResponse::export(config)?;
+    GetTaskWorkspaceRequest::export(config)?;
+    GetTaskWorkspaceResponse::export(config)?;
+    TaskWorkspace::export(config)?;
+    ListTasksRequest::export(config)?;
+    ListTasksResponse::export(config)?;
+    UpdateTaskRequest::export(config)?;
+    UpdateTaskResponse::export(config)?;
+    DeleteTaskRequest::export(config)?;
+    DeleteTaskResponse::export(config)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         CreateTaskRequest, CreateTaskResponse, DeleteTaskRequest, DeleteTaskResponse,
-        GetTaskRequest, GetTaskResponse, ListTasksRequest, ListTasksResponse, Task, TaskStatus,
+        GetTaskRequest, GetTaskResponse, GetTaskWorkspaceResponse, ListTasksRequest,
+        ListTasksResponse, Task, TaskStatus, TaskType, TaskWorkspace, TaskWorkspaceMode,
         UpdateTaskRequest, UpdateTaskResponse,
     };
     use pretty_assertions::assert_eq;
@@ -124,11 +207,16 @@ mod tests {
             project_id: "project-1".to_string(),
             title: "Ship handlers".to_string(),
             status: TaskStatus::Doing,
+            workspace_mode: TaskWorkspaceMode::Worktree,
+            task_type: TaskType::Default,
+            workflow_run_id: None,
         };
         let create_request = CreateTaskRequest {
             project_id: "project-1".to_string(),
             title: "Ship handlers".to_string(),
             status: TaskStatus::Todo,
+            workspace_mode: None,
+            base_branch: Some("main".to_string()),
         };
         let get_request = GetTaskRequest {
             task_id: "task-1".to_string(),
@@ -136,7 +224,6 @@ mod tests {
         let list_request = ListTasksRequest {};
         let update_request = UpdateTaskRequest {
             task_id: "task-1".to_string(),
-            project_id: "project-1".to_string(),
             title: "Ship updated handlers".to_string(),
             status: TaskStatus::Done,
         };
@@ -151,6 +238,9 @@ mod tests {
                 "projectId": "project-1",
                 "title": "Ship handlers",
                 "status": "doing",
+                "workspaceMode": "worktree",
+                "type": "default",
+                "workflowRunId": null,
             }),
         );
         assert_serialized_json(
@@ -159,6 +249,7 @@ mod tests {
                 "projectId": "project-1",
                 "title": "Ship handlers",
                 "status": "todo",
+                "baseBranch": "main",
             }),
         );
         assert_serialized_json(
@@ -167,8 +258,11 @@ mod tests {
                 "task": {
                     "id": "task-1",
                     "projectId": "project-1",
-                    "title": "Ship handlers",
-                    "status": "doing",
+                "title": "Ship handlers",
+                "status": "doing",
+                "workspaceMode": "worktree",
+                "type": "default",
+                "workflowRunId": null,
                 },
             }),
         );
@@ -179,8 +273,11 @@ mod tests {
                 "task": {
                     "id": "task-1",
                     "projectId": "project-1",
-                    "title": "Ship handlers",
-                    "status": "doing",
+                "title": "Ship handlers",
+                "status": "doing",
+                "workspaceMode": "worktree",
+                "type": "default",
+                "workflowRunId": null,
                 },
             }),
         );
@@ -196,6 +293,9 @@ mod tests {
                         "projectId": "project-1",
                         "title": "Ship handlers",
                         "status": "doing",
+                        "workspaceMode": "worktree",
+                        "type": "default",
+                        "workflowRunId": null,
                     },
                 ],
             }),
@@ -204,7 +304,6 @@ mod tests {
             &update_request,
             json!({
                 "taskId": "task-1",
-                "projectId": "project-1",
                 "title": "Ship updated handlers",
                 "status": "done",
             }),
@@ -217,6 +316,9 @@ mod tests {
                     "projectId": "project-1",
                     "title": "Ship handlers",
                     "status": "doing",
+                    "workspaceMode": "worktree",
+                    "type": "default",
+                    "workflowRunId": null,
                 },
             }),
         );
@@ -229,6 +331,13 @@ mod tests {
         );
     }
 
+    /// Verifies the task `type` values are stable and frontend-friendly.
+    #[test]
+    fn serializes_task_type_values() {
+        assert_serialized_json(&TaskType::Default, json!("default"));
+        assert_serialized_json(&TaskType::Workflow, json!("workflow"));
+    }
+
     /// Confirms the shared task view remains the single reusable payload across responses.
     #[test]
     fn preserves_shared_task_shape_across_responses() {
@@ -237,6 +346,9 @@ mod tests {
             project_id: "project-1".to_string(),
             title: "Ship handlers".to_string(),
             status: TaskStatus::Todo,
+            workspace_mode: TaskWorkspaceMode::Worktree,
+            task_type: TaskType::Default,
+            workflow_run_id: None,
         };
 
         assert_eq!(
@@ -258,6 +370,20 @@ mod tests {
         assert_eq!(
             UpdateTaskResponse { task: task.clone() },
             UpdateTaskResponse { task }
+        );
+    }
+
+    /// Verifies project-root and detached contexts omit the optional branch without changing the root shape.
+    #[test]
+    fn serializes_task_workspace_without_a_branch() {
+        assert_serialized_json(
+            &GetTaskWorkspaceResponse {
+                workspace: TaskWorkspace {
+                    root_path: "C:/projects/ora".to_string(),
+                    branch_name: None,
+                },
+            },
+            json!({ "workspace": { "rootPath": "C:/projects/ora" } }),
         );
     }
 

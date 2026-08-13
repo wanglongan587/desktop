@@ -1,6 +1,7 @@
 mod spec;
 mod tokio_process;
 mod traits;
+mod tree;
 #[cfg(windows)]
 mod windows_tree;
 

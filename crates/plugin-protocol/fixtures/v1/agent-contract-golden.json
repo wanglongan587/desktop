@@ -61,16 +61,16 @@
     {
       "name": "agentScope.project",
       "value": {
-        "projectHandle": "project-1",
         "type": "project",
+        "projectHandle": "project-1",
         "workingDirectory": "D:\\work"
       }
     },
     {
       "name": "agentEvent.textDelta",
       "value": {
-        "channel": "assistant",
         "kind": "textDelta",
+        "channel": "assistant",
         "text": "你好"
       }
     },

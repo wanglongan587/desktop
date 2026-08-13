@@ -58,14 +58,39 @@ pub struct ListProjectsResponse {
     pub projects: Vec<Project>,
 }
 
-/// Carries the full replacement payload for project updates in the first slice.
+/// Identifies which project's local Git branches should be listed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "project.ts")]
+pub struct ListProjectBranchesRequest {
+    pub project_id: String,
+}
+
+/// Returns local branches that can seed a new worktree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "project.ts")]
+pub struct ListProjectBranchesResponse {
+    pub branches: Vec<ProjectBranch>,
+}
+
+/// Separates the logical branch name, resolvable ref, and label shown to users.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "project.ts")]
+pub struct ProjectBranch {
+    pub name: String,
+    pub ref_name: String,
+    pub display_name: String,
+}
+
+/// Carries the mutable project name while the repository root remains immutable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "project.ts")]
 pub struct UpdateProjectRequest {
     pub project_id: String,
     pub name: String,
-    pub root_path: String,
 }
 
 /// Returns the updated project after a successful update request.
@@ -92,12 +117,32 @@ pub struct DeleteProjectResponse {
     pub project_id: String,
 }
 
+/// Exports every TypeScript binding declared in this module into the target directory.
+pub(crate) fn export(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    Project::export(config)?;
+    CreateProjectRequest::export(config)?;
+    CreateProjectResponse::export(config)?;
+    GetProjectRequest::export(config)?;
+    GetProjectResponse::export(config)?;
+    ListProjectsRequest::export(config)?;
+    ListProjectsResponse::export(config)?;
+    ListProjectBranchesRequest::export(config)?;
+    ListProjectBranchesResponse::export(config)?;
+    ProjectBranch::export(config)?;
+    UpdateProjectRequest::export(config)?;
+    UpdateProjectResponse::export(config)?;
+    DeleteProjectRequest::export(config)?;
+    DeleteProjectResponse::export(config)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         CreateProjectRequest, CreateProjectResponse, DeleteProjectRequest, DeleteProjectResponse,
-        GetProjectRequest, GetProjectResponse, ListProjectsRequest, ListProjectsResponse, Project,
-        UpdateProjectRequest, UpdateProjectResponse,
+        GetProjectRequest, GetProjectResponse, ListProjectBranchesRequest,
+        ListProjectBranchesResponse, ListProjectsRequest, ListProjectsResponse, Project,
+        ProjectBranch, UpdateProjectRequest, UpdateProjectResponse,
     };
     use pretty_assertions::assert_eq;
     use serde::Serialize;
@@ -119,10 +164,12 @@ mod tests {
             project_id: "project-1".to_string(),
         };
         let list_request = ListProjectsRequest {};
+        let list_branches_request = ListProjectBranchesRequest {
+            project_id: "project-1".to_string(),
+        };
         let update_request = UpdateProjectRequest {
             project_id: "project-1".to_string(),
             name: "Ora Updated".to_string(),
-            root_path: "/workspace/ora-next".to_string(),
         };
         let delete_request = DeleteProjectRequest {
             project_id: "project-1".to_string(),
@@ -169,6 +216,23 @@ mod tests {
             }),
         );
         assert_serialized_json(&list_request, json!({}));
+        assert_serialized_json(&list_branches_request, json!({ "projectId": "project-1" }));
+        assert_serialized_json(
+            &ListProjectBranchesResponse {
+                branches: vec![ProjectBranch {
+                    name: "main".to_string(),
+                    ref_name: "origin/main".to_string(),
+                    display_name: "main".to_string(),
+                }],
+            },
+            json!({
+                "branches": [{
+                    "name": "main",
+                    "refName": "origin/main",
+                    "displayName": "main",
+                }],
+            }),
+        );
         assert_serialized_json(
             &ListProjectsResponse {
                 projects: vec![project.clone()],
@@ -188,7 +252,6 @@ mod tests {
             json!({
                 "projectId": "project-1",
                 "name": "Ora Updated",
-                "rootPath": "/workspace/ora-next",
             }),
         );
         assert_serialized_json(

@@ -1,174 +1,387 @@
-use ora_contracts::{DataRemovalConfirmationResponse, NativePluginSelectionResponse};
-use ora_domain::ProjectId;
-use ora_plugin_protocol::PluginId;
-use ora_web_server::config::RuntimeConfig;
-use ora_web_server::{BackendRuntime, PluginBackendOptions};
-use serde::Serialize;
-use std::sync::{Mutex, PoisonError};
+mod commands;
+mod config;
+mod dashboard;
+mod error;
+mod skill_marketplace;
+mod spec_commands;
+mod state;
+mod workspace_files;
+
+use crate::config::DesktopConfigStore;
+use crate::error::DesktopBootstrapError;
+use crate::state::{DesktopRuntimeGuard, DesktopState};
+use ora_backend::{Backend, BackendPaths};
+use ora_logging::{
+    FileLoggingConfig, LogLevel, LogOutput, LoggingConfig, RotationPolicy, init_logging, ora_info,
+    ora_warn, register_gitlancer_logger,
+};
+use ora_plugin_manager::PluginManager;
+use std::collections::HashMap;
+use std::num::NonZeroUsize;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 
-/// Creates a shared domain identifier during startup so the desktop shell stays compiled against the canonical domain crate.
-fn bootstrap_project_id() -> ProjectId {
-    ProjectId::new("desktop-bootstrap")
-}
-
-struct DesktopBackendState {
-    runtime: Mutex<Option<BackendRuntime>>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct BackendBootstrapPayload {
-    endpoint: String,
-    bearer: String,
-}
-
-/// Returns backend authority only to the configured main Workbench window after readiness.
-#[tauri::command]
-fn plugin_backend_bootstrap(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DesktopBackendState>,
-) -> Result<BackendBootstrapPayload, String> {
-    require_main_window(&window)?;
-    let guard = state.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-    let runtime = guard
-        .as_ref()
-        .ok_or_else(|| "backend is not ready".to_owned())?;
-    let credentials = runtime
-        .credentials()
-        .ok_or_else(|| "authenticated plugin routes are not available".to_owned())?;
-    Ok(BackendBootstrapPayload {
-        endpoint: format!("http://{}", credentials.endpoint()),
-        bearer: credentials.bearer().to_owned(),
-    })
-}
-
-/// Opens the operating-system folder picker and returns only an opaque selection capability.
-#[tauri::command]
-async fn plugin_pick_candidate(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DesktopBackendState>,
-) -> Result<NativePluginSelectionResponse, String> {
-    require_main_window(&window)?;
-    let Some(selection) = window.dialog().file().blocking_pick_folder() else {
-        return Ok(NativePluginSelectionResponse { selection: None });
-    };
-    let path = selection
-        .into_path()
-        .map_err(|_| "selected location is not a local filesystem path".to_owned())?;
-    let guard = state.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-    let runtime = guard
-        .as_ref()
-        .ok_or_else(|| "backend is not ready".to_owned())?;
-    runtime
-        .register_native_selection(&path)
-        .map_err(|error| error.to_string())
-}
-
-/// Uses a native destructive prompt before minting a one-time all-owner data removal capability.
-#[tauri::command]
-async fn plugin_confirm_all_owner_data_removal(
-    window: tauri::WebviewWindow,
-    state: tauri::State<'_, DesktopBackendState>,
-    plugin_id: String,
-) -> Result<Option<DataRemovalConfirmationResponse>, String> {
-    require_main_window(&window)?;
-    let plugin_id = PluginId::parse(plugin_id).map_err(|_| "plugin id is invalid".to_owned())?;
-    let confirmed = window
-        .dialog()
-        .message(format!(
-            "Remove all saved data for {} across every installed content owner?",
-            plugin_id
-        ))
-        .title("Remove plugin data")
-        .buttons(MessageDialogButtons::YesNo)
-        .blocking_show();
-    if !confirmed {
-        return Ok(None);
-    }
-    let guard = state.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-    let runtime = guard
-        .as_ref()
-        .ok_or_else(|| "backend is not ready".to_owned())?;
-    runtime
-        .authorize_all_owner_data_removal(plugin_id)
-        .map(Some)
-        .map_err(|error| error.to_string())
-}
-
-fn require_main_window(window: &tauri::WebviewWindow) -> Result<(), String> {
-    if window.label() != "main" {
-        return Err("backend authority is restricted to the main Workbench window".to_owned());
-    }
-    Ok(())
-}
-
-/// Starts the Tauri application and wires in development-only logging.
+/// Starts the Tauri application with the persisted shared Backend and command adapters.
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default()
-        .manage(DesktopBackendState {
-            runtime: Mutex::new(None),
-        })
+    tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![
-            plugin_backend_bootstrap,
-            plugin_pick_candidate,
-            plugin_confirm_all_owner_data_removal
-        ]);
-    // The embedded driver is compiled only into the dedicated E2E binary, so production builds
-    // never expose an automation server or its additional attack surface.
-    #[cfg(feature = "desktop-e2e")]
-    let builder = builder.plugin(tauri_plugin_wdio_webdriver::init());
-    let app = builder
         .setup(|app| {
-            let _ = bootstrap_project_id();
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            // Renderer/window smoke tests do not need the separately covered plugin runtime.
-            // Keeping that dependency out makes the native window gate deterministic and fast.
-            if cfg!(feature = "desktop-e2e") {
-                return Ok(());
-            }
-            let runtime_config = RuntimeConfig::from_env()?;
-            let resources = app.path().resource_dir()?.join("plugin-runtime");
-            let options = PluginBackendOptions::new(
-                resources,
-                vec![
-                    "http://tauri.localhost".to_owned(),
-                    "tauri://localhost".to_owned(),
-                    "http://127.0.0.1:5173".to_owned(),
-                ],
-            );
-            let backend =
-                tauri::async_runtime::block_on(BackendRuntime::start(&runtime_config, options))?;
-            let state = app.state::<DesktopBackendState>();
-            *state.runtime.lock().unwrap_or_else(PoisonError::into_inner) = Some(backend);
+            let (state, guard) = bootstrap_desktop(app)?;
+            app.manage(state);
+            app.manage(guard);
             Ok(())
         })
-        .build(tauri::generate_context!())
-        .unwrap_or_else(|error| panic!("error while building Tauri application: {error}"));
-    let exit_code = app.run_return(|handle, event| {
-        if let tauri::RunEvent::ExitRequested { .. } = event
-            && let Some(state) = handle.try_state::<DesktopBackendState>()
-        {
-            let runtime = state
-                .runtime
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .take();
-            if let Some(runtime) = runtime {
-                let _ = tauri::async_runtime::block_on(runtime.shutdown());
+        .invoke_handler(tauri::generate_handler![
+            // =============================================================================
+            // project
+            // =============================================================================
+            commands::create_project,
+            commands::get_project,
+            commands::list_projects,
+            commands::list_project_branches,
+            commands::update_project,
+            commands::delete_project,
+            // =============================================================================
+            // task
+            // =============================================================================
+            commands::create_task,
+            commands::get_task,
+            commands::list_tasks,
+            commands::update_task,
+            commands::delete_task,
+            spec_commands::get_task_workspace,
+            commands::get_task_diff,
+            commands::commit_task_changes,
+            commands::push_task_branch,
+            commands::list_task_diff_comments,
+            commands::create_task_diff_comment,
+            commands::reply_task_diff_comment,
+            commands::set_task_diff_comment_status,
+            // =============================================================================
+            // fileSystem
+            // =============================================================================
+            commands::list_workspace_directory,
+            commands::read_workspace_file,
+            commands::search_workspace,
+            spec_commands::get_spec_catalog,
+            spec_commands::read_spec,
+            spec_commands::resolve_spec_source,
+            spec_commands::update_project_spec_sources,
+            // =============================================================================
+            // session
+            // =============================================================================
+            commands::warm_session,
+            commands::set_session_config,
+            commands::attach_session,
+            commands::get_session,
+            commands::list_sessions,
+            commands::respond_to_session_permission,
+            commands::stop_session,
+            commands::switch_session_agent,
+            commands::resume_session_history,
+            commands::delete_session,
+            commands::stream_contract,
+            commands::cancel_contract_stream,
+            // =============================================================================
+            // agentRuntime
+            // =============================================================================
+            commands::get_agent_runtime_status,
+            // =============================================================================
+            // skill
+            // =============================================================================
+            commands::create_skill,
+            commands::get_skill,
+            commands::list_skills,
+            commands::update_skill,
+            commands::delete_skill,
+            skill_marketplace::open_skill_marketplace,
+            // =============================================================================
+            // agent
+            // =============================================================================
+            commands::prepare_skill_import,
+            commands::get_skill_import,
+            commands::commit_skill_import,
+            commands::cancel_skill_import,
+            commands::create_agent,
+            commands::get_agent,
+            commands::list_agents,
+            // =============================================================================
+            // plugin
+            // =============================================================================
+            commands::list_installed_plugins,
+            commands::update_agent,
+            commands::delete_agent,
+            commands::prepare_agent_import,
+            commands::commit_agent_import,
+            // =============================================================================
+            // gitIdentity
+            // =============================================================================
+            commands::get_git_identity,
+            // =============================================================================
+            // workflow
+            // =============================================================================
+            commands::create_workflow,
+            commands::get_workflow,
+            commands::list_workflows,
+            commands::update_workflow,
+            commands::delete_workflow,
+            commands::get_workflow_draft,
+            commands::update_workflow_draft,
+            commands::publish_workflow,
+            commands::rollback_workflow,
+            commands::activate_workflow,
+            commands::list_workflow_versions,
+            commands::get_workflow_version,
+            commands::delete_workflow_snapshot,
+            commands::get_workflow_snapshot,
+            // =============================================================================
+            // workflowRun
+            // =============================================================================
+            commands::create_workflow_run,
+            commands::get_workflow_run,
+            commands::list_workflow_runs,
+            commands::list_workflow_runs_by_workflow,
+            commands::list_workflow_node_runs,
+            commands::delete_workflow_run,
+            commands::start_workflow_run,
+            commands::cancel_workflow_run,
+            commands::restart_workflow_run,
+            commands::update_workflow_run_input,
+            // =============================================================================
+            // desktop
+            // =============================================================================
+            commands::get_desktop_config,
+            commands::set_worktree_root,
+            commands::resolve_task_cwd,
+            commands::open_location,
+            commands::write_workflow_export,
+            dashboard::get_dashboard_url,
+            dashboard::get_dashboard_compare_url,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running tauri application");
+}
+
+/// Resolves Desktop paths and constructs configuration, logging, and Backend state.
+fn bootstrap_desktop(
+    app: &mut tauri::App,
+) -> Result<(DesktopState, DesktopRuntimeGuard), DesktopBootstrapError> {
+    let app_data_directory = desktop_data_directory(app)?;
+    let config = DesktopConfigStore::load_or_create(&app_data_directory)?;
+    let config_snapshot = config.snapshot()?;
+    let resolved_timezone = read_system_timezone();
+    let logging = init_logging(desktop_logging_config(
+        &app_data_directory,
+        resolved_timezone.timezone,
+    ))?;
+    match &resolved_timezone.warning {
+        Some(DesktopTimezoneWarning::SystemRead { error }) => {
+            ora_warn!(
+                message = "failed to read the system timezone, falling back to UTC",
+                source = "system_timezone",
+                error = %error,
+                fallback_timezone = %resolved_timezone.timezone,
+            );
+        }
+        Some(DesktopTimezoneWarning::InvalidTimezone { timezone }) => {
+            ora_warn!(
+                message = "invalid IANA system timezone, falling back to UTC",
+                source = "system_timezone",
+                timezone,
+                fallback_timezone = %resolved_timezone.timezone,
+            );
+        }
+        None => {}
+    }
+    ora_info!(
+        message = "logging initialized",
+        timezone = %resolved_timezone.timezone,
+        timezone_source = "system_timezone",
+    );
+    register_gitlancer_logger();
+    let ripgrep_path = resolve_ripgrep_path();
+    let backend = Backend::open(BackendPaths {
+        database_path: app_data_directory.join("ora.sqlite3"),
+        worktree_root: config_snapshot.worktree_root().to_path_buf(),
+        home_directory: app
+            .path()
+            .home_dir()
+            .map_err(DesktopBootstrapError::AppDataDirectory)?,
+        sessions_root: app_data_directory.join("sessions"),
+        skills_root: app_data_directory.join("atoms").join("skills"),
+        ripgrep_path: ripgrep_path.clone(),
+        timezone: resolved_timezone.timezone,
+    })?;
+    let workspace_files = Arc::new(workspace_files::WorkspaceFileApi::new(ripgrep_path));
+    let plugin_manager = PluginManager::discover(&app_data_directory);
+    for issue in plugin_manager.discovery_issues() {
+        ora_warn!(
+            message = "installed plugin manifest skipped during discovery",
+            path = %issue.path().display(),
+            issue_kind = issue.kind().as_str(),
+            field_path = issue.field_path().unwrap_or(""),
+            reason = issue.message(),
+        );
+    }
+
+    Ok((
+        DesktopState {
+            backend,
+            plugin_manager: Arc::new(plugin_manager),
+            config,
+            workspace_files,
+            app_data_directory: app_data_directory.clone(),
+            stream_cancellations: Arc::new(Mutex::new(HashMap::new())),
+        },
+        DesktopRuntimeGuard { _logging: logging },
+    ))
+}
+
+/// Resolves the configured Desktop data root or falls back to Tauri's application data directory.
+fn desktop_data_directory(app: &tauri::App) -> Result<std::path::PathBuf, DesktopBootstrapError> {
+    if let Some(configured) = std::env::var_os("ORA_DATA_DIR") {
+        let configured = std::path::PathBuf::from(configured);
+        if configured.is_absolute() {
+            return Ok(configured);
+        }
+
+        return Ok(std::env::current_dir()
+            .unwrap_or_else(|_| std::path::PathBuf::from("."))
+            .join(configured));
+    }
+
+    app.path()
+        .app_data_dir()
+        .map_err(DesktopBootstrapError::AppDataDirectory)
+}
+
+/// Resolves ripgrep from a development override or the executable directory in a release build.
+fn resolve_ripgrep_path() -> std::path::PathBuf {
+    if cfg!(debug_assertions) {
+        return std::env::var_os("ORA_RG_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::path::PathBuf::from("rg"));
+    }
+
+    let executable_name = if cfg!(target_os = "windows") {
+        "rg.exe"
+    } else {
+        "rg"
+    };
+    std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(executable_name)
+}
+
+/// Carries the startup timezone selected from the operating system and any deferred warning.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ResolvedDesktopTimezone {
+    timezone: chrono_tz::Tz,
+    warning: Option<DesktopTimezoneWarning>,
+}
+
+/// Describes a recoverable Desktop system-timezone failure.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum DesktopTimezoneWarning {
+    SystemRead { error: String },
+    InvalidTimezone { timezone: String },
+}
+
+/// Reads the operating system's IANA timezone once for the Desktop process lifetime.
+fn read_system_timezone() -> ResolvedDesktopTimezone {
+    resolve_system_timezone(iana_time_zone::get_timezone().map_err(|error| error.to_string()))
+}
+
+/// Validates an injected system-timezone result so failure branches remain unit-testable.
+fn resolve_system_timezone(system_timezone: Result<String, String>) -> ResolvedDesktopTimezone {
+    match system_timezone {
+        Ok(timezone_name) => {
+            let timezone_name = timezone_name.trim().to_string();
+            match timezone_name.parse::<chrono_tz::Tz>() {
+                Ok(timezone) => ResolvedDesktopTimezone {
+                    timezone,
+                    warning: None,
+                },
+                Err(_) => ResolvedDesktopTimezone {
+                    timezone: chrono_tz::UTC,
+                    warning: Some(DesktopTimezoneWarning::InvalidTimezone {
+                        timezone: timezone_name,
+                    }),
+                },
             }
         }
-    });
-    if exit_code != 0 {
-        std::process::exit(exit_code);
+        Err(error) => ResolvedDesktopTimezone {
+            timezone: chrono_tz::UTC,
+            warning: Some(DesktopTimezoneWarning::SystemRead { error }),
+        },
+    }
+}
+
+/// Builds the Desktop logging topology rooted in the stable system application directory.
+fn desktop_logging_config(
+    app_data_directory: &std::path::Path,
+    timezone: chrono_tz::Tz,
+) -> LoggingConfig {
+    let file = FileLoggingConfig::new(
+        app_data_directory.join("logs").join("ora.log"),
+        RotationPolicy::Daily,
+        NonZeroUsize::new(3).unwrap_or(NonZeroUsize::MIN),
+    );
+    let output = if cfg!(debug_assertions) {
+        LogOutput::StdoutAndFile(file)
+    } else {
+        LogOutput::File(file)
+    };
+
+    LoggingConfig::new(LogLevel::Info, output, timezone)
+}
+
+#[cfg(test)]
+mod tests {
+    use pretty_assertions::assert_eq;
+
+    use super::{DesktopTimezoneWarning, ResolvedDesktopTimezone, resolve_system_timezone};
+
+    /// Verifies Desktop accepts and trims a system-provided IANA timezone.
+    #[test]
+    fn resolves_valid_system_timezone() {
+        assert_eq!(
+            resolve_system_timezone(Ok("  Europe/London  ".to_string())),
+            ResolvedDesktopTimezone {
+                timezone: chrono_tz::Europe::London,
+                warning: None,
+            }
+        );
+    }
+
+    /// Verifies an invalid system timezone remains visible while Desktop safely selects UTC.
+    #[test]
+    fn falls_back_when_system_timezone_is_invalid() {
+        assert_eq!(
+            resolve_system_timezone(Ok("London".to_string())),
+            ResolvedDesktopTimezone {
+                timezone: chrono_tz::UTC,
+                warning: Some(DesktopTimezoneWarning::InvalidTimezone {
+                    timezone: "London".to_string(),
+                }),
+            }
+        );
+    }
+
+    /// Verifies an operating-system lookup failure remains visible while Desktop safely selects UTC.
+    #[test]
+    fn falls_back_when_system_timezone_lookup_fails() {
+        assert_eq!(
+            resolve_system_timezone(Err("timezone unavailable".to_string())),
+            ResolvedDesktopTimezone {
+                timezone: chrono_tz::UTC,
+                warning: Some(DesktopTimezoneWarning::SystemRead {
+                    error: "timezone unavailable".to_string(),
+                }),
+            }
+        );
     }
 }

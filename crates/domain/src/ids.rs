@@ -29,12 +29,36 @@ macro_rules! define_id {
 
 define_id!(ProjectId, "Identifies a persisted project.");
 define_id!(
-    ProjectWorkContextId,
-    "Identifies a persisted project work context."
+    ProjectSpecSourceOverrideId,
+    "Identifies a persisted project specification source override."
 );
 define_id!(TaskId, "Identifies a persisted task.");
 define_id!(WorktreeId, "Identifies a persisted worktree.");
+define_id!(GitCleanupJobId, "Identifies a persisted Git cleanup job.");
+define_id!(
+    WorktreeProvisioningLeaseId,
+    "Identifies a persisted worktree provisioning lease."
+);
+define_id!(
+    TaskDiffCommentId,
+    "Identifies a persisted task diff comment."
+);
 define_id!(VirtualFolderId, "Identifies a persisted virtual folder.");
 define_id!(VirtualEntryId, "Identifies a persisted virtual entry.");
 define_id!(SessionId, "Identifies a persisted session.");
 define_id!(ArtifactId, "Identifies a persisted artifact.");
+define_id!(SkillId, "Identifies a persisted skill.");
+define_id!(
+    AgentDefinitionId,
+    "Identifies a persisted configurable agent definition."
+);
+define_id!(WorkflowId, "Identifies a persisted workflow.");
+define_id!(
+    WorkflowSnapshotId,
+    "Identifies a persisted workflow snapshot."
+);
+define_id!(WorkflowRunId, "Identifies a persisted workflow run.");
+define_id!(
+    WorkflowNodeRunId,
+    "Identifies a persisted workflow node run."
+);

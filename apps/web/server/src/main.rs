@@ -1,30 +1,46 @@
-use ora_logging::{LoggingGuard, init_logging, ora_info, register_gitlancer_logger};
+use axum::Router;
+use ora_logging::{LoggingGuard, init_logging, ora_info, ora_warn, register_gitlancer_logger};
 use ora_web_server::config::RuntimeConfig;
 use ora_web_server::error::WebBootstrapError;
-use ora_web_server::{BackendRuntime, PluginBackendOptions};
-use std::path::PathBuf;
+use ora_web_server::timezone::TimezoneWarning;
+use ora_web_server::{AppState, build_app_state, build_router as build_application_router};
+use tokio::net::TcpListener;
 
 /// Boots the web server runtime, initializes shared services, and starts serving HTTP traffic.
 #[tokio::main]
 async fn main() -> Result<(), WebBootstrapError> {
     let runtime_config = RuntimeConfig::from_env()?;
     let _logging_guard = initialize_logging(runtime_config.logging())?;
+    report_timezone_status(&runtime_config);
     register_gitlancer_logger();
-    let options =
-        PluginBackendOptions::new(plugin_runtime_resources()?, Vec::new()).without_plugin_routes();
-    let runtime = BackendRuntime::start(&runtime_config, options).await?;
-    let endpoint = runtime.endpoint();
+    let app_state = build_app_state(&runtime_config)?;
+    let router = build_router(app_state.clone());
+    let listener = bind_listener(&runtime_config).await?;
+
+    app_state.mark_ready();
 
     ora_info!(
         message = "web server listening",
-        host = endpoint.ip().to_string(),
-        port = endpoint.port()
+        host = runtime_config.server().host().to_string(),
+        port = runtime_config.server().port()
     );
 
-    tokio::signal::ctrl_c()
+    axum::serve(listener, router)
+        .with_graceful_shutdown(wait_for_shutdown())
         .await
-        .map_err(WebBootstrapError::ShutdownSignal)?;
-    runtime.shutdown().await
+        .map_err(WebBootstrapError::Serve)
+}
+
+/// Builds the HTTP router for the configured application state.
+fn build_router(app_state: AppState) -> Router {
+    build_application_router(app_state)
+}
+
+/// Binds the Tokio listener using the configured socket address.
+async fn bind_listener(runtime_config: &RuntimeConfig) -> Result<TcpListener, WebBootstrapError> {
+    TcpListener::bind(runtime_config.server().socket_address())
+        .await
+        .map_err(WebBootstrapError::Bind)
 }
 
 /// Initializes structured logging and returns the guard that owns writer lifetimes.
@@ -34,12 +50,35 @@ fn initialize_logging(
     init_logging(logging_config.clone()).map_err(WebBootstrapError::LoggingInit)
 }
 
-/// Resolves the explicit development runtime resource root without consulting system PATH.
-fn plugin_runtime_resources() -> Result<PathBuf, WebBootstrapError> {
-    if let Some(path) = std::env::var_os("ORA_PLUGIN_RUNTIME_RESOURCES") {
-        return Ok(PathBuf::from(path));
+/// Reports the resolved timezone configuration, warning on missing or invalid settings,
+/// and emits the post-initialization info log once logging is ready.
+fn report_timezone_status(runtime_config: &RuntimeConfig) {
+    match runtime_config.timezone_warning() {
+        Some(TimezoneWarning::MissingConfiguration) => {
+            ora_warn!(
+                message = "timezone is not explicitly configured, using default timezone",
+                source = runtime_config.timezone_source().as_str(),
+                fallback_timezone = %runtime_config.logging().timezone,
+            );
+        }
+        Some(TimezoneWarning::InvalidConfiguration { source, timezone }) => {
+            ora_warn!(
+                message = "invalid IANA timezone configuration, falling back to UTC",
+                source = source.as_str(),
+                timezone,
+                fallback_timezone = %runtime_config.logging().timezone,
+            );
+        }
+        None => {}
     }
-    std::env::current_dir()
-        .map(|directory| directory.join("runtime-assets").join("prepared"))
-        .map_err(WebBootstrapError::DataDirectoryCreate)
+    ora_info!(
+        message = "logging initialized",
+        timezone = %runtime_config.logging().timezone,
+        timezone_source = runtime_config.timezone_source().as_str(),
+    );
+}
+
+/// Waits for the process shutdown signal so the server stops cleanly on SIGINT.
+async fn wait_for_shutdown() {
+    let _ = tokio::signal::ctrl_c().await;
 }

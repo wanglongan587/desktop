@@ -1,5 +1,8 @@
-use ora_application::{SessionRepository, SessionRepositoryError};
-use ora_domain::{AgentId, AuditFields, Session, SessionId, SessionStatus, TaskId};
+use ora_application::{RepositoryError, SessionRepository};
+use ora_domain::{
+    AgentCli, AuditFields, DomainModelError, HistoryState, Session, SessionId, SessionStatus,
+    SessionTitle, TaskId,
+};
 use rusqlite::{Row, params};
 
 use crate::repository::{RepositoryPool, connection::bool_to_sqlite};
@@ -19,23 +22,33 @@ impl SqliteSessionRepository {
 
 impl SessionRepository for SqliteSessionRepository {
     /// Inserts a new session row and returns the stored session snapshot.
-    fn create_session(&self, session: Session) -> Result<Session, SessionRepositoryError> {
+    fn create_session(&self, session: Session) -> Result<Session, RepositoryError> {
         self.pool
             .with_connection(|connection| {
-                connection.execute(
-                    "INSERT INTO sessions (id, task_id, agent_id, agent_session_id, status, created_at, updated_at, is_deleted)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                let inserted_rows = connection.execute(
+                    "INSERT INTO sessions (id, task_id, agent_cli, agent_session_id, title, status, history_degraded_reason, created_at, updated_at, is_deleted)
+                     SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10
+                     WHERE EXISTS (
+                         SELECT 1 FROM tasks WHERE id = ?2 AND is_deleted = 0
+                     )",
                     params![
                         session.id.as_ref(),
                         session.task_id.as_ref(),
-                        session.agent_id.as_ref(),
-                        session.agent_session_id.as_deref(),
+                        session.agent_cli.database_value(),
+                        session.agent_session_id,
+                        session.title.as_ref().map(SessionTitle::as_str),
                         session.status.database_value(),
+                        session.history_state.database_value(),
                         session.audit_fields.created_at,
                         session.audit_fields.updated_at,
                         bool_to_sqlite(session.audit_fields.is_deleted),
                     ],
                 )?;
+                if inserted_rows == 0 {
+                    return Err(crate::DatabaseError::Sqlite(
+                        rusqlite::Error::QueryReturnedNoRows,
+                    ));
+                }
 
                 Ok(session)
             })
@@ -43,14 +56,11 @@ impl SessionRepository for SqliteSessionRepository {
     }
 
     /// Loads one visible session row by identifier.
-    fn find_session(
-        &self,
-        session_id: &SessionId,
-    ) -> Result<Option<Session>, SessionRepositoryError> {
+    fn find_session(&self, session_id: &SessionId) -> Result<Option<Session>, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
-                    "SELECT id, task_id, agent_id, agent_session_id, status, created_at, updated_at, is_deleted
+                    "SELECT id, task_id, agent_cli, agent_session_id, title, status, history_degraded_reason, created_at, updated_at, is_deleted
                      FROM sessions
                      WHERE id = ?1 AND is_deleted = 0",
                 )?;
@@ -65,11 +75,11 @@ impl SessionRepository for SqliteSessionRepository {
     }
 
     /// Lists every visible session row in stable storage order.
-    fn list_sessions(&self) -> Result<Vec<Session>, SessionRepositoryError> {
+    fn list_sessions(&self) -> Result<Vec<Session>, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let mut statement = connection.prepare(
-                    "SELECT id, task_id, agent_id, agent_session_id, status, created_at, updated_at, is_deleted
+                    "SELECT id, task_id, agent_cli, agent_session_id, title, status, history_degraded_reason, created_at, updated_at, is_deleted
                      FROM sessions
                      WHERE is_deleted = 0
                      ORDER BY created_at, id",
@@ -86,31 +96,126 @@ impl SessionRepository for SqliteSessionRepository {
             .map_err(session_repository_error_from_database)
     }
 
-    /// Replaces the persisted session snapshot identified by the provided id.
-    fn update_session(&self, session: Session) -> Result<Session, SessionRepositoryError> {
+    /// Updates only the title so lifecycle or binding changes cannot be overwritten by a stale snapshot.
+    fn update_session_title(
+        &self,
+        session_id: &SessionId,
+        title: &SessionTitle,
+        now: i64,
+    ) -> Result<Session, RepositoryError> {
         self.pool
             .with_connection(|connection| {
-                let updated_rows = connection.execute(
-                    "UPDATE sessions
-                     SET task_id = ?2, agent_id = ?3, agent_session_id = ?4, status = ?5, created_at = ?6, updated_at = ?7, is_deleted = ?8
-                     WHERE id = ?1 AND is_deleted = 0",
-                    params![
-                        session.id.as_ref(),
-                        session.task_id.as_ref(),
-                        session.agent_id.as_ref(),
-                        session.agent_session_id.as_deref(),
-                        session.status.database_value(),
-                        session.audit_fields.created_at,
-                        session.audit_fields.updated_at,
-                        bool_to_sqlite(session.audit_fields.is_deleted),
-                    ],
+                let mut statement = connection.prepare(
+                    "UPDATE sessions SET title = ?2, updated_at = ?3
+                     WHERE id = ?1 AND is_deleted = 0
+                     RETURNING id, task_id, agent_cli, agent_session_id, title, status,
+                         history_degraded_reason, created_at, updated_at, is_deleted",
                 )?;
-
-                if updated_rows == 0 {
-                    return Err(crate::DatabaseError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+                let mut rows =
+                    statement.query(params![session_id.as_ref(), title.as_str(), now])?;
+                match rows.next()? {
+                    Some(row) => map_session_row(row),
+                    None => Err(crate::DatabaseError::Sqlite(
+                        rusqlite::Error::QueryReturnedNoRows,
+                    )),
                 }
+            })
+            .map_err(session_repository_error_from_database)
+    }
 
-                Ok(session)
+    /// Updates only lifecycle status so unrelated session state remains authoritative.
+    fn update_session_status(
+        &self,
+        session_id: &SessionId,
+        status: SessionStatus,
+        now: i64,
+    ) -> Result<Session, RepositoryError> {
+        self.pool
+            .with_connection(|connection| {
+                // The whole ownership chain must still be visible: admission racing
+                // an aggregate deletion must fail here instead of resurrecting a
+                // session row whose task or project rows are already soft-deleted.
+                let mut statement = connection.prepare(
+                    "UPDATE sessions SET status = ?2, updated_at = ?3
+                     WHERE id = ?1 AND is_deleted = 0
+                       AND EXISTS (
+                           SELECT 1 FROM tasks t
+                           JOIN projects p ON p.id = t.project_id AND p.is_deleted = 0
+                           WHERE t.id = sessions.task_id AND t.is_deleted = 0
+                       )
+                     RETURNING id, task_id, agent_cli, agent_session_id, title, status,
+                         history_degraded_reason, created_at, updated_at, is_deleted",
+                )?;
+                let mut rows =
+                    statement.query(params![session_id.as_ref(), status.database_value(), now])?;
+                match rows.next()? {
+                    Some(row) => map_session_row(row),
+                    None => Err(crate::DatabaseError::Sqlite(
+                        rusqlite::Error::QueryReturnedNoRows,
+                    )),
+                }
+            })
+            .map_err(session_repository_error_from_database)
+    }
+
+    /// Updates only the provider binding while preserving title, lifecycle, and history state.
+    fn update_session_binding(
+        &self,
+        session_id: &SessionId,
+        agent_cli: AgentCli,
+        agent_session_id: &str,
+        now: i64,
+    ) -> Result<Session, RepositoryError> {
+        self.pool
+            .with_connection(|connection| {
+                let mut statement = connection.prepare(
+                    "UPDATE sessions SET agent_cli = ?2, agent_session_id = ?3, updated_at = ?4
+                     WHERE id = ?1 AND is_deleted = 0
+                     RETURNING id, task_id, agent_cli, agent_session_id, title, status,
+                         history_degraded_reason, created_at, updated_at, is_deleted",
+                )?;
+                let mut rows = statement.query(params![
+                    session_id.as_ref(),
+                    agent_cli.database_value(),
+                    agent_session_id,
+                    now
+                ])?;
+                match rows.next()? {
+                    Some(row) => map_session_row(row),
+                    None => Err(crate::DatabaseError::Sqlite(
+                        rusqlite::Error::QueryReturnedNoRows,
+                    )),
+                }
+            })
+            .map_err(session_repository_error_from_database)
+    }
+
+    /// Updates only the history state so a stale actor cannot erase a newer title.
+    fn update_session_history_state(
+        &self,
+        session_id: &SessionId,
+        history_state: &HistoryState,
+        now: i64,
+    ) -> Result<Session, RepositoryError> {
+        self.pool
+            .with_connection(|connection| {
+                let mut statement = connection.prepare(
+                    "UPDATE sessions SET history_degraded_reason = ?2, updated_at = ?3
+                     WHERE id = ?1 AND is_deleted = 0
+                     RETURNING id, task_id, agent_cli, agent_session_id, title, status,
+                         history_degraded_reason, created_at, updated_at, is_deleted",
+                )?;
+                let mut rows = statement.query(params![
+                    session_id.as_ref(),
+                    history_state.database_value(),
+                    now
+                ])?;
+                match rows.next()? {
+                    Some(row) => map_session_row(row),
+                    None => Err(crate::DatabaseError::Sqlite(
+                        rusqlite::Error::QueryReturnedNoRows,
+                    )),
+                }
             })
             .map_err(session_repository_error_from_database)
     }
@@ -120,7 +225,7 @@ impl SessionRepository for SqliteSessionRepository {
         &self,
         session_id: &SessionId,
         deleted_at: i64,
-    ) -> Result<bool, SessionRepositoryError> {
+    ) -> Result<bool, RepositoryError> {
         self.pool
             .with_connection(|connection| {
                 let updated_rows = connection.execute(
@@ -139,19 +244,30 @@ impl SessionRepository for SqliteSessionRepository {
 /// Reconstructs a domain session from the selected session columns.
 fn map_session_row(row: &Row<'_>) -> Result<Session, crate::DatabaseError> {
     let status = SessionStatus::from_database_value(row.get("status")?)?;
+    let agent_cli = AgentCli::from_database_value(&row.get::<_, String>("agent_cli")?)?;
     let is_deleted = row.get::<_, i64>("is_deleted")? != 0;
+
+    let title = row
+        .get::<_, Option<String>>("title")?
+        .map(|title| SessionTitle::parse(title).map_err(DomainModelError::from))
+        .transpose()?;
+
+    let history_state =
+        HistoryState::from_database_value(row.get::<_, Option<String>>("history_degraded_reason")?);
 
     Ok(Session::new(
         SessionId::new(row.get::<_, String>("id")?),
         TaskId::new(row.get::<_, String>("task_id")?),
-        AgentId::new(row.get::<_, String>("agent_id")?),
-        row.get::<_, Option<String>>("agent_session_id")?,
+        agent_cli,
+        row.get::<_, String>("agent_session_id")?,
         status,
         AuditFields::new(row.get("created_at")?, row.get("updated_at")?, is_deleted),
-    ))
+    )
+    .with_title(title)
+    .restoring_history_state(history_state))
 }
 
 /// Converts shared database-layer failures into session repository errors.
-fn session_repository_error_from_database(error: crate::DatabaseError) -> SessionRepositoryError {
-    SessionRepositoryError::OperationFailed(error.to_string())
+fn session_repository_error_from_database(error: crate::DatabaseError) -> RepositoryError {
+    RepositoryError::new(error)
 }

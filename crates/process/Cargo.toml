@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 getrandom = { workspace = true }
+libc = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "net", "process", "rt", "sync", "time"] }
 
@@ -22,3 +23,6 @@ windows-sys = { workspace = true }
 pretty_assertions = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["io-util", "macros", "process", "rt-multi-thread", "time"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true }

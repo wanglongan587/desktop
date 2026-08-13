@@ -651,7 +651,7 @@ async fn cancel_invocation(
         .plugin_invocations()
         .get(&invocation_id)
         .await
-        .ok_or_else(|| WebApiError::not_found("invocation_not_found", "invocation not found"))?;
+        .ok_or_else(|| WebApiError::not_found("plugin invocation was not found"))?;
     cancellation.cancel().await?;
     Ok(Json(PluginActionResponse {}))
 }
@@ -791,8 +791,9 @@ fn inject_resolved_scope(mut params: Value, scope: AgentScope) -> Result<Value, 
     }
     object.insert(
         "scope".to_owned(),
-        serde_json::to_value(scope)
-            .map_err(|_| WebApiError::internal("resolved Agent scope serialization failed"))?,
+        serde_json::to_value(scope).map_err(|error| {
+            WebApiError::internal("resolved Agent scope serialization failed", error)
+        })?,
     );
     Ok(params)
 }

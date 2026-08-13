@@ -28,7 +28,9 @@ impl PluginScopeResolver {
         let resolver = self.clone();
         tokio::task::spawn_blocking(move || resolver.resolve_blocking(scope))
             .await
-            .map_err(|_| WebApiError::internal("agent scope resolver stopped unexpectedly"))?
+            .map_err(|error| {
+                WebApiError::internal("agent scope resolver stopped unexpectedly", error)
+            })?
     }
 
     /// Revalidates object membership on every invocation before any plugin frame can be written.
@@ -39,7 +41,7 @@ impl PluginScopeResolver {
                 let project_id = ProjectId::new(project_id);
                 let project = SqliteProjectRepository::new(self.pool.clone())
                     .find_project(&project_id)
-                    .map_err(|_| WebApiError::internal("project scope lookup failed"))?
+                    .map_err(|error| WebApiError::internal("project scope lookup failed", error))?
                     .ok_or_else(invalid_scope)?;
                 let working_directory = canonical_host_path(Path::new(&project.root_path))?;
                 Ok(AgentScope::Project {
@@ -56,11 +58,11 @@ impl PluginScopeResolver {
                 let worktree_id = WorktreeId::new(worktree_id);
                 let worktree = SqliteWorktreeRepository::new(self.pool.clone())
                     .find_worktree(&worktree_id)
-                    .map_err(|_| WebApiError::internal("worktree scope lookup failed"))?
+                    .map_err(|error| WebApiError::internal("worktree scope lookup failed", error))?
                     .ok_or_else(invalid_scope)?;
                 let task = SqliteTaskRepository::new(self.pool.clone())
                     .find_task(&TaskId::new(worktree.task_id.to_string()))
-                    .map_err(|_| WebApiError::internal("worktree task lookup failed"))?
+                    .map_err(|error| WebApiError::internal("worktree task lookup failed", error))?
                     .ok_or_else(invalid_scope)?;
                 if task.project_id != project_id
                     || task.worktree_id.as_ref() != Some(&worktree_id)
@@ -70,7 +72,9 @@ impl PluginScopeResolver {
                 }
                 let project = SqliteProjectRepository::new(self.pool.clone())
                     .find_project(&project_id)
-                    .map_err(|_| WebApiError::internal("worktree project lookup failed"))?
+                    .map_err(|error| {
+                        WebApiError::internal("worktree project lookup failed", error)
+                    })?
                     .ok_or_else(invalid_scope)?;
                 let managed_root =
                     std::fs::canonicalize(&self.work_dir).map_err(|_| invalid_scope())?;
@@ -118,7 +122,7 @@ mod tests {
     };
     use ora_domain::{
         AuditFields, Project, ProjectId, Task, TaskId, TaskStatus, Worktree, WorktreeActivity,
-        WorktreeId,
+        WorktreeBaseline, WorktreeId,
     };
     use ora_plugin_protocol::{
         AgentScope, HostResolvedAbsolutePath, ProjectHandle, WorktreeHandle,
@@ -170,6 +174,8 @@ mod tests {
                 worktree_id.clone(),
                 task_id.clone(),
                 Some("task-branch".to_owned()),
+                None,
+                WorktreeBaseline::unavailable(),
                 WorktreeActivity::Active,
                 audit,
             ))

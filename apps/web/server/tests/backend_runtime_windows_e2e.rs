@@ -518,6 +518,7 @@ fn runtime_config(data_dir: &Path, project_dir: &Path) -> RuntimeConfig {
         "ORA_DATA_DIR" => Some(data_dir.to_string_lossy().into_owned()),
         "ORA_PROJECT_NAME" => Some("Backend E2E".to_owned()),
         "ORA_PROJECT_PATH" => Some(project_dir.to_string_lossy().into_owned()),
+        "HOME" => Some(data_dir.to_string_lossy().into_owned()),
         _ => None,
     })
     .unwrap_or_else(|error| panic!("expected runtime configuration: {error}"))

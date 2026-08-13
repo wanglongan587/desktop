@@ -1,7 +1,56 @@
+use agent_client_protocol_schema::v1::{
+    AvailableCommand, ContentBlock, PermissionOption, SessionConfigOption, SessionUpdate,
+    StopReason, ToolCallUpdate,
+};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// Describes whether the public session view is still running.
+/// Identifies the shared CLI runtime selected for a provider-backed session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export_to = "session.ts")]
+pub enum AgentCli {
+    OpenCode,
+    Nga,
+    CodeAgentCli,
+    Claude,
+    Codex,
+}
+
+/// Describes the live ACP handshake state of one application-scoped CLI runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub enum AgentCliStatus {
+    Ready,
+    Starting,
+    Unavailable,
+}
+
+/// Pairs one CLI identity with its current runtime detection status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct AgentCliRuntimeStatus {
+    pub agent_cli: AgentCli,
+    pub status: AgentCliStatus,
+}
+
+/// Requests the live detection status of every application-scoped CLI runtime.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct GetAgentRuntimeStatusRequest {}
+
+/// Returns the live detection status of every application-scoped CLI runtime.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct GetAgentRuntimeStatusResponse {
+    pub statuses: Vec<AgentCliRuntimeStatus>,
+}
+
+/// Describes whether a persisted session is registered on its shared CLI connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
@@ -10,46 +59,130 @@ pub enum SessionStatus {
     Stopped,
 }
 
-/// Describes the initial PTY dimensions used only during terminal session startup.
+/// Reports whether Ora can still extend this session's recorded history.
+///
+/// Separate from [`SessionStatus`] on purpose: that says whether the conversation
+/// is registered on a CLI connection, this says whether the record of it can
+/// still grow. A running session whose disk filled is both at once, and the user
+/// has to be told which one broke.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "camelCase")]
+#[serde(tag = "type", rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
-pub struct TerminalSessionStartup {
-    pub cols: u16,
-    pub rows: u16,
+pub enum SessionHistoryState {
+    Writable,
+    /// A write failed; the session refuses prompts until its history is resumed.
+    Degraded {
+        reason: String,
+    },
 }
 
-/// Describes the public session payload shared across adapter responses.
+/// Describes the public session payload without exposing the provider session identifier.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
 pub struct Session {
     pub id: String,
     pub task_id: String,
-    pub agent_id: String,
-    pub agent_session_id: Option<String>,
+    /// The persisted display title, or `null` until the first acquisition succeeds.
+    pub title: Option<String>,
+    /// The CLI this conversation currently runs on, which switching replaces.
+    pub agent_cli: AgentCli,
     pub status: SessionStatus,
+    pub history_state: SessionHistoryState,
 }
 
-/// Carries the app-facing payload for session creation requests.
+/// Selects the working directory one warm session is created against.
+///
+/// The two variants mirror how Ora resolves a cwd: an existing Task owns either
+/// a linked worktree or the project root, while a chat whose Task does not exist
+/// yet can only target the project root. Modelling this as an enum keeps callers
+/// from having to pass two optional identifiers and guess which one wins.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub enum WarmSessionTarget {
+    Task {
+        #[serde(rename = "taskId")]
+        task_id: String,
+    },
+    ProjectRoot {
+        #[serde(rename = "projectId")]
+        project_id: String,
+    },
+}
+
+/// Requests the reusable warm provider session backing one chat surface.
+///
+/// The request carries no cwd: the backend derives it from `target` on every
+/// call, so a worktree that moved or was recreated invalidates the warm entry
+/// instead of silently addressing a stale directory.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
-pub struct CreateSessionRequest {
+pub struct WarmSessionRequest {
+    pub target: WarmSessionTarget,
+    pub agent_cli: AgentCli,
+    /// Identifies the client surface that will own the returned session.
+    ///
+    /// Warm entries are keyed by this value because one backend can serve
+    /// several clients (browser tabs against the Web server). Without it two
+    /// tabs showing the same selection would share one provider session, and
+    /// whichever attached first would take the other tab's conversation.
+    pub client_id: String,
+}
+
+/// Returns the warm session identifier together with the agent's current configuration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct WarmSessionResponse {
+    /// The final Ora session id. It is not persisted until `attachSession`
+    /// succeeds, so `getSession` and `listSessions` do not report it yet.
+    pub session_id: String,
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").SessionConfigOption>")]
+    pub config_options: Vec<SessionConfigOption>,
+}
+
+/// Sets one selectable configuration option on a warm or persisted session.
+///
+/// `value` is the chosen option's value id. Only id-valued options are
+/// expressible because Ora does not advertise the boolean config-option client
+/// capability, so an agent never offers a value this request cannot carry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct SetSessionConfigRequest {
+    pub session_id: String,
+    pub config_id: String,
+    pub value: String,
+}
+
+/// Returns the full option set after the agent applies the change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct SetSessionConfigResponse {
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").SessionConfigOption>")]
+    pub config_options: Vec<SessionConfigOption>,
+}
+
+/// Binds one warm session to its owning Task and persists the Ora record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct AttachSessionRequest {
+    pub session_id: String,
     pub task_id: String,
-    pub agent_id: String,
-    pub agent_session_id: Option<String>,
-    pub status: SessionStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub terminal: Option<TerminalSessionStartup>,
 }
 
-/// Returns the created session after a successful create request.
+/// Returns the newly persisted session payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
-pub struct CreateSessionResponse {
+pub struct AttachSessionResponse {
     pub session: Session,
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").AvailableCommand>")]
+    pub available_commands: Vec<AvailableCommand>,
 }
 
 /// Identifies which session to fetch.
@@ -82,27 +215,166 @@ pub struct ListSessionsResponse {
     pub sessions: Vec<Session>,
 }
 
-/// Carries the full replacement payload for session updates in the first slice.
+/// Identifies a stopped session whose provider history should be replayed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
-pub struct UpdateSessionRequest {
+pub struct LoadSessionRequest {
     pub session_id: String,
-    pub task_id: String,
-    pub agent_id: String,
-    pub agent_session_id: Option<String>,
-    pub status: SessionStatus,
 }
 
-/// Returns the updated session after a successful update request.
+/// Carries one or more ACP content blocks to the provider session.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct PromptSessionRequest {
+    pub session_id: String,
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").ContentBlock>")]
+    pub prompt: Vec<ContentBlock>,
+}
+
+/// Exposes an opaque permission request while preserving the agent's typed option payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct SessionPermissionRequest {
+    pub permission_request_id: String,
+    #[ts(type = "import(\"@agentclientprotocol/sdk\").ToolCallUpdate")]
+    pub tool_call: ToolCallUpdate,
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").PermissionOption>")]
+    pub options: Vec<PermissionOption>,
+}
+
+/// Replays Ora's recorded history while keeping JSON-RPC framing private to the backend.
+///
+/// The stream carries assembled updates read back from Ora's own record, not the
+/// provider's replay. `TurnEnded` has no ACP equivalent and exists because a
+/// cancelled turn would otherwise be indistinguishable from a completed one —
+/// information provider replay never carried.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export_to = "session.ts")]
+pub enum LoadSessionEvent {
+    SessionUpdate {
+        #[ts(type = "import(\"@agentclientprotocol/sdk\").SessionUpdate")]
+        update: SessionUpdate,
+    },
+    PermissionRequest(SessionPermissionRequest),
+    TurnEnded {
+        #[serde(rename = "stopReason")]
+        #[ts(type = "import(\"@agentclientprotocol/sdk\").StopReason")]
+        stop_reason: StopReason,
+    },
+    Completed,
+}
+
+/// Streams one prompt turn and ends with the provider's typed stop reason.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[ts(export_to = "session.ts")]
+pub enum PromptSessionEvent {
+    SessionUpdate {
+        #[ts(type = "import(\"@agentclientprotocol/sdk\").SessionUpdate")]
+        update: SessionUpdate,
+    },
+    PermissionRequest(SessionPermissionRequest),
+    Completed {
+        #[serde(rename = "stopReason")]
+        #[ts(type = "import(\"@agentclientprotocol/sdk\").StopReason")]
+        stop_reason: StopReason,
+    },
+}
+
+/// Selects one option for a still-pending permission request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
-pub struct UpdateSessionResponse {
+pub struct RespondToPermissionRequest {
+    pub session_id: String,
+    pub permission_request_id: String,
+    pub option_id: String,
+}
+
+/// Confirms that a permission response was delivered to the agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct RespondToPermissionResponse {}
+
+/// Identifies a running session whose child process should be stopped.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct StopSessionRequest {
+    pub session_id: String,
+}
+
+/// Returns the stopped public session snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct StopSessionResponse {
     pub session: Session,
 }
 
-/// Identifies which session to delete.
+/// Moves one existing conversation onto a different agent CLI.
+///
+/// Only the binding changes: the session keeps its identifier, its task, and the
+/// history it has accumulated. The new CLI starts with no context, so Ora's
+/// recorded transcript is prepended to the next prompt sent into it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct SwitchSessionAgentRequest {
+    pub session_id: String,
+    pub agent_cli: AgentCli,
+    /// Identifies the client surface whose warm session this switch claims.
+    ///
+    /// The provider session the new CLI runs on is the one this client already
+    /// warmed while its picker was showing that CLI's models, and warm entries
+    /// are keyed by client. Carrying the same value here is what makes the
+    /// switch claim that entry — including any model chosen on it — rather than
+    /// build a second session the user never configured.
+    pub client_id: String,
+}
+
+/// Returns the session rebound to its new CLI.
+///
+/// The new CLI reports its own commands and configuration during the handshake
+/// that the switch performs, so both travel back with the rebound session. A
+/// client that only heard about the session would otherwise keep offering the
+/// previous CLI's models, which the new one cannot honour.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct SwitchSessionAgentResponse {
+    pub session: Session,
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").AvailableCommand>")]
+    pub available_commands: Vec<AvailableCommand>,
+    #[ts(type = "Array<import(\"@agentclientprotocol/sdk\").SessionConfigOption>")]
+    pub config_options: Vec<SessionConfigOption>,
+}
+
+/// Returns a session whose history writes failed to a writable state.
+///
+/// Resuming appends a record of what went missing before accepting new content,
+/// so the conversation never contains a gap that cannot be seen.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct ResumeSessionHistoryRequest {
+    pub session_id: String,
+}
+
+/// Returns the session after its history became writable again.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export_to = "session.ts")]
+pub struct ResumeSessionHistoryResponse {
+    pub session: Session,
+}
+
+/// Identifies which Ora session record to remove.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
@@ -110,7 +382,7 @@ pub struct DeleteSessionRequest {
     pub session_id: String,
 }
 
-/// Returns the deleted session identifier after a successful delete request.
+/// Returns the removed Ora session identifier without deleting provider history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export_to = "session.ts")]
@@ -118,356 +390,71 @@ pub struct DeleteSessionResponse {
     pub session_id: String,
 }
 
-/// Describes one client-to-server terminal control message.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(tag = "type", rename_all = "camelCase")]
-#[ts(export_to = "session.ts")]
-pub enum TerminalClientMessage {
-    Input { data: String },
-    Resize { cols: u16, rows: u16 },
-    Kill {},
-}
-
-/// Describes one server-to-client terminal stream message.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(tag = "type", rename_all = "camelCase")]
-#[ts(export_to = "session.ts")]
-pub enum TerminalServerMessage {
-    Ready {
-        #[serde(rename = "sessionId")]
-        session_id: String,
-    },
-    History {
-        data: String,
-    },
-    Output {
-        data: String,
-    },
-    Exit {
-        #[serde(rename = "exitCode")]
-        exit_code: Option<i32>,
-    },
-    Error {
-        code: String,
-        message: String,
-    },
+/// Exports every TypeScript binding declared in this module into the target directory.
+pub(crate) fn export(config: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
+    AgentCli::export(config)?;
+    AgentCliStatus::export(config)?;
+    AgentCliRuntimeStatus::export(config)?;
+    GetAgentRuntimeStatusRequest::export(config)?;
+    GetAgentRuntimeStatusResponse::export(config)?;
+    SessionStatus::export(config)?;
+    SessionHistoryState::export(config)?;
+    Session::export(config)?;
+    SwitchSessionAgentRequest::export(config)?;
+    SwitchSessionAgentResponse::export(config)?;
+    ResumeSessionHistoryRequest::export(config)?;
+    ResumeSessionHistoryResponse::export(config)?;
+    WarmSessionTarget::export(config)?;
+    WarmSessionRequest::export(config)?;
+    WarmSessionResponse::export(config)?;
+    SetSessionConfigRequest::export(config)?;
+    SetSessionConfigResponse::export(config)?;
+    AttachSessionRequest::export(config)?;
+    AttachSessionResponse::export(config)?;
+    GetSessionRequest::export(config)?;
+    GetSessionResponse::export(config)?;
+    ListSessionsRequest::export(config)?;
+    ListSessionsResponse::export(config)?;
+    LoadSessionRequest::export(config)?;
+    PromptSessionRequest::export(config)?;
+    SessionPermissionRequest::export(config)?;
+    LoadSessionEvent::export(config)?;
+    PromptSessionEvent::export(config)?;
+    RespondToPermissionRequest::export(config)?;
+    RespondToPermissionResponse::export(config)?;
+    StopSessionRequest::export(config)?;
+    StopSessionResponse::export(config)?;
+    DeleteSessionRequest::export(config)?;
+    DeleteSessionResponse::export(config)?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CreateSessionRequest, CreateSessionResponse, DeleteSessionRequest, DeleteSessionResponse,
-        GetSessionRequest, GetSessionResponse, ListSessionsRequest, ListSessionsResponse, Session,
-        SessionStatus, TerminalClientMessage, TerminalServerMessage, TerminalSessionStartup,
-        UpdateSessionRequest, UpdateSessionResponse,
-    };
+    use super::PromptSessionRequest;
+    use agent_client_protocol_schema::v1::{ContentBlock, TextContent};
     use pretty_assertions::assert_eq;
-    use serde::Serialize;
-    use serde_json::{Value, json};
+    use serde_json::{Map, json};
 
-    /// Verifies the first session slice serializes to frontend-friendly JSON payloads.
+    /// Verifies Ora route DTOs preserve official ACP extension metadata without translation.
     #[test]
-    fn serializes_session_contracts() {
-        let session = Session {
-            id: "session-1".to_string(),
-            task_id: "task-1".to_string(),
-            agent_id: "agent-1".to_string(),
-            agent_session_id: Some("provider-1".to_string()),
-            status: SessionStatus::Running,
-        };
-        let create_request = CreateSessionRequest {
-            task_id: "task-1".to_string(),
-            agent_id: "agent-1".to_string(),
-            agent_session_id: None,
-            status: SessionStatus::Stopped,
-            terminal: Some(TerminalSessionStartup { cols: 80, rows: 24 }),
-        };
-        let get_request = GetSessionRequest {
+    fn prompt_request_serializes_official_acp_metadata() {
+        let metadata = Map::from_iter([("ora.dev/source".to_string(), json!("composer"))]);
+        let request = PromptSessionRequest {
             session_id: "session-1".to_string(),
-        };
-        let list_request = ListSessionsRequest {};
-        let update_request = UpdateSessionRequest {
-            session_id: "session-1".to_string(),
-            task_id: "task-2".to_string(),
-            agent_id: "agent-2".to_string(),
-            agent_session_id: Some("provider-2".to_string()),
-            status: SessionStatus::Stopped,
-        };
-        let delete_request = DeleteSessionRequest {
-            session_id: "session-1".to_string(),
+            prompt: vec![ContentBlock::Text(TextContent::new("hello").meta(metadata))],
         };
 
-        assert_serialized_json(
-            &session,
-            json!({
-                "id": "session-1",
-                "taskId": "task-1",
-                "agentId": "agent-1",
-                "agentSessionId": "provider-1",
-                "status": "running",
-            }),
-        );
-        assert_serialized_json(
-            &create_request,
-            json!({
-                "taskId": "task-1",
-                "agentId": "agent-1",
-                "agentSessionId": null,
-                "status": "stopped",
-                "terminal": {
-                    "cols": 80,
-                    "rows": 24,
-                },
-            }),
-        );
-        assert_serialized_json(
-            &CreateSessionResponse {
-                session: session.clone(),
-            },
-            json!({
-                "session": {
-                    "id": "session-1",
-                    "taskId": "task-1",
-                    "agentId": "agent-1",
-                    "agentSessionId": "provider-1",
-                    "status": "running",
-                },
-            }),
-        );
-        assert_serialized_json(&get_request, json!({ "sessionId": "session-1" }));
-        assert_serialized_json(
-            &GetSessionResponse {
-                session: session.clone(),
-            },
-            json!({
-                "session": {
-                    "id": "session-1",
-                    "taskId": "task-1",
-                    "agentId": "agent-1",
-                    "agentSessionId": "provider-1",
-                    "status": "running",
-                },
-            }),
-        );
-        assert_serialized_json(&list_request, json!({}));
-        assert_serialized_json(
-            &ListSessionsResponse {
-                sessions: vec![session.clone()],
-            },
-            json!({
-                "sessions": [
-                    {
-                        "id": "session-1",
-                        "taskId": "task-1",
-                        "agentId": "agent-1",
-                        "agentSessionId": "provider-1",
-                        "status": "running",
-                    },
-                ],
-            }),
-        );
-        assert_serialized_json(
-            &update_request,
+        assert_eq!(
+            serde_json::to_value(request).expect("serialize prompt request"),
             json!({
                 "sessionId": "session-1",
-                "taskId": "task-2",
-                "agentId": "agent-2",
-                "agentSessionId": "provider-2",
-                "status": "stopped",
-            }),
+                "prompt": [{
+                    "type": "text",
+                    "text": "hello",
+                    "_meta": { "ora.dev/source": "composer" },
+                }],
+            })
         );
-        assert_serialized_json(
-            &UpdateSessionResponse { session },
-            json!({
-                "session": {
-                    "id": "session-1",
-                    "taskId": "task-1",
-                    "agentId": "agent-1",
-                    "agentSessionId": "provider-1",
-                    "status": "running",
-                },
-            }),
-        );
-        assert_serialized_json(&delete_request, json!({ "sessionId": "session-1" }));
-        assert_serialized_json(
-            &DeleteSessionResponse {
-                session_id: "session-1".to_string(),
-            },
-            json!({ "sessionId": "session-1" }),
-        );
-    }
-
-    /// Confirms the shared session view remains the single reusable payload across responses.
-    #[test]
-    fn preserves_shared_session_shape_across_responses() {
-        let session = Session {
-            id: "session-1".to_string(),
-            task_id: "task-1".to_string(),
-            agent_id: "agent-1".to_string(),
-            agent_session_id: None,
-            status: SessionStatus::Stopped,
-        };
-
-        assert_eq!(
-            CreateSessionResponse {
-                session: session.clone(),
-            },
-            CreateSessionResponse {
-                session: session.clone(),
-            }
-        );
-        assert_eq!(
-            GetSessionResponse {
-                session: session.clone(),
-            },
-            GetSessionResponse {
-                session: session.clone(),
-            }
-        );
-        assert_eq!(
-            ListSessionsResponse {
-                sessions: vec![session.clone()],
-            },
-            ListSessionsResponse {
-                sessions: vec![session.clone()],
-            }
-        );
-        assert_eq!(
-            UpdateSessionResponse {
-                session: session.clone(),
-            },
-            UpdateSessionResponse { session }
-        );
-    }
-
-    /// Verifies terminal session startup payloads and stream messages serialize with stable JSON shapes.
-    #[test]
-    fn serializes_terminal_contracts() {
-        assert_serialized_json(
-            &TerminalSessionStartup {
-                cols: 120,
-                rows: 40,
-            },
-            json!({
-                "cols": 120,
-                "rows": 40,
-            }),
-        );
-        assert_serialized_json(
-            &TerminalClientMessage::Input {
-                data: "ls -la\n".to_string(),
-            },
-            json!({
-                "type": "input",
-                "data": "ls -la\n",
-            }),
-        );
-        assert_serialized_json(
-            &TerminalClientMessage::Resize {
-                cols: 132,
-                rows: 50,
-            },
-            json!({
-                "type": "resize",
-                "cols": 132,
-                "rows": 50,
-            }),
-        );
-        assert_serialized_json(
-            &TerminalClientMessage::Kill {},
-            json!({
-                "type": "kill",
-            }),
-        );
-        assert_serialized_json(
-            &TerminalServerMessage::Ready {
-                session_id: "session-1".to_string(),
-            },
-            json!({
-                "type": "ready",
-                "sessionId": "session-1",
-            }),
-        );
-        assert_serialized_json(
-            &TerminalServerMessage::History {
-                data: "cargo test\n".to_string(),
-            },
-            json!({
-                "type": "history",
-                "data": "cargo test\n",
-            }),
-        );
-        assert_serialized_json(
-            &TerminalServerMessage::Output {
-                data: "Finished dev profile\n".to_string(),
-            },
-            json!({
-                "type": "output",
-                "data": "Finished dev profile\n",
-            }),
-        );
-        assert_serialized_json(
-            &TerminalServerMessage::Exit { exit_code: Some(0) },
-            json!({
-                "type": "exit",
-                "exitCode": 0,
-            }),
-        );
-        assert_serialized_json(
-            &TerminalServerMessage::Error {
-                code: "terminal_already_attached".to_string(),
-                message: "terminal already attached".to_string(),
-            },
-            json!({
-                "type": "error",
-                "code": "terminal_already_attached",
-                "message": "terminal already attached",
-            }),
-        );
-    }
-
-    /// Verifies terminal startup dimensions remain separate from later resize control messages.
-    #[test]
-    fn keeps_terminal_startup_dimensions_separate_from_resize_messages() {
-        let create_request = CreateSessionRequest {
-            task_id: "task-1".to_string(),
-            agent_id: "terminal".to_string(),
-            agent_session_id: None,
-            status: SessionStatus::Running,
-            terminal: Some(TerminalSessionStartup { cols: 90, rows: 28 }),
-        };
-        let resize_message = TerminalClientMessage::Resize {
-            cols: 140,
-            rows: 45,
-        };
-
-        assert_serialized_json(
-            &create_request,
-            json!({
-                "taskId": "task-1",
-                "agentId": "terminal",
-                "agentSessionId": null,
-                "status": "running",
-                "terminal": {
-                    "cols": 90,
-                    "rows": 28,
-                },
-            }),
-        );
-        assert_serialized_json(
-            &resize_message,
-            json!({
-                "type": "resize",
-                "cols": 140,
-                "rows": 45,
-            }),
-        );
-    }
-
-    /// Serializes one value and compares the full JSON payload so field names stay stable.
-    fn assert_serialized_json(value: &impl Serialize, expected: Value) {
-        let actual = serde_json::to_value(value)
-            .unwrap_or_else(|error| panic!("expected serialization to succeed: {error}"));
-        assert_eq!(actual, expected);
     }
 }

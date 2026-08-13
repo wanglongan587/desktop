@@ -1,5 +1,16 @@
+pub mod agents;
+pub mod file_system;
+pub mod git;
 pub mod health;
-pub mod project_work_contexts;
+pub mod plugins;
 pub mod projects;
 pub mod sessions;
+pub mod skill_imports;
+pub mod skills;
+pub mod snapshots;
+pub mod specs;
+pub mod task_diffs;
 pub mod tasks;
+pub mod workflow_runs;
+pub mod workflows;
+pub mod workspace_files;

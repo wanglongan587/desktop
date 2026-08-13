@@ -31,6 +31,16 @@ export type GetProjectRequest = { projectId: string };
 export type GetProjectResponse = { project: Project };
 
 /**
+ * Identifies which project's local Git branches should be listed.
+ */
+export type ListProjectBranchesRequest = { projectId: string };
+
+/**
+ * Returns local branches that can seed a new worktree.
+ */
+export type ListProjectBranchesResponse = { branches: Array<ProjectBranch> };
+
+/**
  * Requests the full visible project list.
  */
 export type ListProjectsRequest = Record<symbol, never>;
@@ -46,13 +56,18 @@ export type ListProjectsResponse = { projects: Array<Project> };
 export type Project = { id: string; name: string; rootPath: string };
 
 /**
- * Carries the full replacement payload for project updates in the first slice.
+ * Separates the logical branch name, resolvable ref, and label shown to users.
  */
-export type UpdateProjectRequest = {
-  projectId: string;
+export type ProjectBranch = {
   name: string;
-  rootPath: string;
+  refName: string;
+  displayName: string;
 };
+
+/**
+ * Carries the mutable project name while the repository root remains immutable.
+ */
+export type UpdateProjectRequest = { projectId: string; name: string };
 
 /**
  * Returns the updated project after a successful update request.

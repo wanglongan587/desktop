@@ -1,25 +1,43 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { Avatar } from "./avatar";
-import { getInitials } from "./utils";
+import { render, screen } from "@testing-library/react"
+import { describe, expect, it } from "vitest"
+
+import { Avatar, AvatarFallback, AvatarImage } from "../../avatar"
 
 describe("Avatar", () => {
-    it("renders initials when no profile image is available", () => {
-        render(<Avatar initials="AL" />);
+  it("renders fallback content when no profile image is available", () => {
+    render(
+      <Avatar>
+        <AvatarFallback>AL</AvatarFallback>
+      </Avatar>
+    )
 
-        expect(screen.getByText("AL")).toBeVisible();
-    });
+    expect(screen.getByText("AL")).toBeVisible()
+  })
 
-    it("falls back to initials when the profile image fails", () => {
-        render(<Avatar src="/missing-profile.png" alt="Ada Lovelace" initials="AL" />);
+  it("shows fallback content while the profile image is unavailable", () => {
+    render(
+      <Avatar>
+        <AvatarImage src="/missing-profile.png" alt="Ada Lovelace" />
+        <AvatarFallback>AL</AvatarFallback>
+      </Avatar>
+    )
 
-        fireEvent.error(screen.getByRole("img", { name: "Ada Lovelace" }));
+    expect(screen.getByText("AL")).toBeVisible()
+    expect(
+      screen.queryByRole("img", { name: "Ada Lovelace" })
+    ).not.toBeInTheDocument()
+  })
 
-        expect(screen.queryByRole("img", { name: "Ada Lovelace" })).not.toBeInTheDocument();
-        expect(screen.getByText("AL")).toBeVisible();
-    });
+  it("exposes the selected size to avatar descendants", () => {
+    const { container } = render(
+      <Avatar size="lg">
+        <AvatarFallback>AL</AvatarFallback>
+      </Avatar>
+    )
 
-    it("uses one or two name parts when deriving initials", () => {
-        expect([getInitials("Ada"), getInitials("Ada Lovelace")]).toEqual(["A", "AL"]);
-    });
-});
+    expect(container.querySelector("[data-slot='avatar']")).toHaveAttribute(
+      "data-size",
+      "lg"
+    )
+  })
+})

@@ -1,14 +1,35 @@
-use ora_contracts::{Session as ContractSession, SessionStatus as ContractSessionStatus};
-use ora_domain::{Session as DomainSession, SessionStatus as DomainSessionStatus};
+use ora_contracts::{
+    AgentCli as ContractAgentCli, Session as ContractSession,
+    SessionHistoryState as ContractSessionHistoryState, SessionStatus as ContractSessionStatus,
+};
+use ora_domain::{
+    HistoryState as DomainHistoryState, Session as DomainSession,
+    SessionStatus as DomainSessionStatus,
+};
 
 /// Maps a domain session into the app-facing contract shape.
 pub(crate) fn map_session(session: DomainSession) -> ContractSession {
     ContractSession {
         id: session.id.to_string(),
         task_id: session.task_id.to_string(),
-        agent_id: session.agent_id.to_string(),
-        agent_session_id: session.agent_session_id,
+        title: session.title.map(|title| title.as_str().to_owned()),
+        agent_cli: match session.agent_cli {
+            ora_domain::AgentCli::OpenCode => ContractAgentCli::OpenCode,
+            ora_domain::AgentCli::Nga => ContractAgentCli::Nga,
+            ora_domain::AgentCli::CodeAgentCli => ContractAgentCli::CodeAgentCli,
+            ora_domain::AgentCli::Claude => ContractAgentCli::Claude,
+            ora_domain::AgentCli::Codex => ContractAgentCli::Codex,
+        },
         status: map_session_status(session.status),
+        history_state: map_history_state(session.history_state),
+    }
+}
+
+/// Translates whether the session's history can still be extended.
+fn map_history_state(history_state: DomainHistoryState) -> ContractSessionHistoryState {
+    match history_state {
+        DomainHistoryState::Writable => ContractSessionHistoryState::Writable,
+        DomainHistoryState::Degraded { reason } => ContractSessionHistoryState::Degraded { reason },
     }
 }
 

@@ -1,5 +1,6 @@
 mod export_contracts;
 mod export_plugin_sdk;
+mod frontend;
 mod generated_check;
 
 pub use export_contracts::{check_exported_contracts, run_export_contracts};

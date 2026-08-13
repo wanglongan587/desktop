@@ -2,35 +2,34 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ora",
   "version": "0.1.0",
-  "identifier": "app.ora.desktop",
+  "identifier": "space.ora.desktop",
   "build": {
-    "frontendDist": "../dist",
-    "devUrl": "http://127.0.0.1:5173",
-    "beforeDevCommand": "pnpm dev",
-    "beforeBuildCommand": "pnpm build"
+    "frontendDist": "../build",
+    "devUrl": "http://localhost:5173",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
   },
   "app": {
     "windows": [
       {
-        "label": "main",
         "title": "Ora",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 832,
+        "minWidth": 900,
+        "minHeight": 600,
+        "center": true,
         "resizable": true,
         "decorations": false,
         "fullscreen": false
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:*; img-src 'self' data:; script-src 'self'; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'"
+      "csp": null
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": {
-      "../../../runtime-assets/prepared/": "plugin-runtime/"
-    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

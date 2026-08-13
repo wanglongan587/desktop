@@ -1,56 +1,49 @@
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
-import { Button } from "./button";
+import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
+import { describe, expect, it, vi } from "vitest"
+
+import { Button } from "../../button"
 
 describe("Button", () => {
-    it("exposes native button semantics and handles pointer activation", async () => {
-        const onClick = vi.fn();
-        const user = userEvent.setup();
-        render(<Button onClick={onClick}>Save</Button>);
+  it("exposes native button semantics and handles activation", async () => {
+    const onClick = vi.fn()
+    const user = userEvent.setup()
+    render(<Button onClick={onClick}>Save</Button>)
 
-        const button = screen.getByRole("button", { name: "Save" });
-        expect(button).toHaveAttribute("type", "button");
+    const button = screen.getByRole("button", { name: "Save" })
+    expect(button).toHaveAttribute("type", "button")
 
-        await user.click(button);
+    await user.click(button)
 
-        expect(onClick).toHaveBeenCalledOnce();
-    });
+    expect(onClick).toHaveBeenCalledOnce()
+  })
 
-    it("prevents disabled buttons and links from being activated", async () => {
-        const onButtonClick = vi.fn();
-        const onLinkClick = vi.fn();
-        const user = userEvent.setup();
-        render(
-            <>
-                <Button isDisabled onClick={onButtonClick}>
-                    Delete
-                </Button>
-                <Button href="/settings" isDisabled onClick={onLinkClick}>
-                    Settings
-                </Button>
-            </>,
-        );
+  it("prevents disabled buttons from being activated", async () => {
+    const onClick = vi.fn()
+    const user = userEvent.setup()
+    render(
+      <Button disabled onClick={onClick}>
+        Delete
+      </Button>
+    )
 
-        await user.click(screen.getByRole("button", { name: "Delete" }));
-        await user.click(screen.getByText("Settings"));
+    const button = screen.getByRole("button", { name: "Delete" })
+    await user.click(button)
 
-        expect(onButtonClick).not.toHaveBeenCalled();
-        expect(onLinkClick).not.toHaveBeenCalled();
-        const disabledLink = screen.getByText("Settings").closest("[aria-disabled='true']");
-        expect(disabledLink).toBeInstanceOf(HTMLElement);
-        expect(disabledLink).not.toHaveAttribute("href");
-    });
+    expect(button).toBeDisabled()
+    expect(onClick).not.toHaveBeenCalled()
+  })
 
-    it("marks pending actions as busy without dropping their accessible name", () => {
-        render(
-            <Button isLoading showTextWhileLoading>
-                Saving
-            </Button>,
-        );
+  it("applies the selected visual variants", () => {
+    render(
+      <Button variant="outline" size="lg">
+        Settings
+      </Button>
+    )
 
-        const button = screen.getByRole("button", { name: "Saving" });
-        expect(button).toHaveAttribute("data-loading", "true");
-        expect(button).toHaveAttribute("aria-disabled", "true");
-    });
-});
+    expect(screen.getByRole("button", { name: "Settings" })).toHaveAttribute(
+      "data-slot",
+      "button"
+    )
+  })
+})

@@ -3,17 +3,21 @@ mod common;
 use std::path::Path;
 
 use common::TestScaffold;
+use gitlancer::git::base_branch::{
+    ListWorktreeBasesRequest, ResolveWorktreeBaseCommitRequest, WorktreeBase,
+};
 use gitlancer::git::branch::{
     BranchDeletionMode, CreateBranchRequest, DeleteBranchRequest, ListBranchesRequest,
 };
 use gitlancer::git::commit::{AddRequest, CommitRequest};
+use gitlancer::git::diff::DiffRequest;
 use gitlancer::git::repository::ListWorktreesRequest;
 use gitlancer::git::status::StatusRequest;
 use gitlancer::git::worktree::{
-    CreateWorktreeRequest, DeleteWorktreeRequest, FindWorktreeRequest, ResolveWorktreeRequest,
-    WorktreeDeletionMode,
+    CreateWorktreeRequest, DeleteWorktreeRequest, FindWorktreeRequest,
+    ResolveWorktreeByBranchRequest, ResolveWorktreeRequest, WorktreeDeletionMode,
 };
-use gitlancer::{BranchName, CliGitRunner, Git, RepoRoot, WorktreeKind, WorktreeRoot};
+use gitlancer::{BranchName, CliGitRunner, CommitId, Git, RepoRoot, WorktreeKind, WorktreeRoot};
 use pretty_assertions::assert_eq;
 
 /// Creates an initial commit so linked worktrees can be created from a valid repository history.
@@ -34,6 +38,120 @@ fn runtime_repository(scaffold: &TestScaffold) -> (Git<CliGitRunner>, gitlancer:
         .expect("discover repository");
 
     (git, repository)
+}
+
+/// Verifies fixed-baseline diffs combine committed, staged, unstaged, and untracked changes.
+#[test]
+fn runtime_builds_complete_task_diff() {
+    let scaffold = TestScaffold::new("runtime-builds-task-diff").expect("create scaffold");
+    seed_repository(&scaffold);
+    let base_commit_id = CommitId::new(
+        scaffold
+            .run_git(["rev-parse", "HEAD"])
+            .expect("read base commit")
+            .trim(),
+    );
+    scaffold
+        .write_file(scaffold.repo_path(), "README.md", "committed change\n")
+        .expect("write committed change");
+    scaffold
+        .stage_all_and_commit("feat: committed task change")
+        .expect("commit task change");
+    scaffold
+        .write_file(scaffold.repo_path(), "staged.txt", "staged change\n")
+        .expect("write staged change");
+    scaffold
+        .run_git(["add", "--", "staged.txt"])
+        .expect("stage task change");
+    let real_index_before = scaffold
+        .run_git(["diff", "--cached", "--binary"])
+        .expect("read real index before diff");
+    scaffold
+        .write_file(
+            scaffold.repo_path(),
+            "README.md",
+            "committed change\nunstaged change\n",
+        )
+        .expect("write unstaged change");
+    scaffold
+        .write_file(scaffold.repo_path(), "untracked.txt", "untracked change\n")
+        .expect("write untracked change");
+    scaffold
+        .write_file(scaffold.repo_path(), "empty.txt", "")
+        .expect("write empty untracked file");
+    scaffold
+        .run_git(["config", "filter.guard.clean", "false"])
+        .expect("configure failing clean filter");
+    scaffold
+        .run_git(["config", "filter.guard.required", "true"])
+        .expect("require clean filter");
+    scaffold
+        .write_file(
+            scaffold.repo_path(),
+            ".gitattributes",
+            "*.guard filter=guard\n",
+        )
+        .expect("write filter attributes");
+    scaffold
+        .write_file(
+            scaffold.repo_path(),
+            "untracked.guard",
+            "filter must not run\n",
+        )
+        .expect("write filtered untracked file");
+    std::fs::write(scaffold.repo_path().join("binary.bin"), b"\0binary\n")
+        .expect("write untracked binary file");
+    let (git, repository) = runtime_repository(&scaffold);
+    let worktree = git
+        .find_worktree(FindWorktreeRequest {
+            repository: &repository,
+            candidate_path: scaffold.repo_path(),
+        })
+        .expect("find main worktree");
+
+    let response = git
+        .diff(DiffRequest {
+            worktree: &worktree,
+            base_commit_id: &base_commit_id,
+            scope: gitlancer::git::diff::DiffScope::Branch,
+        })
+        .expect("build task diff");
+
+    assert_ne!(response.head_commit_id, base_commit_id);
+    for expected_path in [
+        "README.md",
+        "empty.txt",
+        "staged.txt",
+        "untracked.txt",
+        "untracked.guard",
+        "binary.bin",
+    ] {
+        assert!(
+            response
+                .patch
+                .contains(&format!("diff --git a/{expected_path} b/{expected_path}")),
+            "patch should include {expected_path}"
+        );
+    }
+    assert!(response.patch.contains("+unstaged change"));
+    assert!(response.patch.contains("+untracked change"));
+    let empty_file_patch = response
+        .patch
+        .split("diff --git ")
+        .find(|section| section.starts_with("a/empty.txt b/empty.txt\n"))
+        .expect("empty file should have its own patch section");
+    assert!(empty_file_patch.contains("new file mode 100644"));
+    assert!(empty_file_patch.contains("index 0000000..e69de29"));
+    assert!(
+        response
+            .patch
+            .contains("Binary files /dev/null and b/binary.bin differ")
+    );
+    assert!(!response.patch.contains("GIT binary patch"));
+    let real_index_after = scaffold
+        .run_git(["diff", "--cached", "--binary"])
+        .expect("read real index after diff");
+    assert_eq!(real_index_after, real_index_before);
 }
 
 /// Verifies the runtime can discover repositories, list worktrees, resolve linked worktrees, and enumerate branches.
@@ -60,6 +178,12 @@ fn runtime_discovers_worktrees_and_branches() {
             worktree_name: "feature-tree",
         })
         .expect("resolve linked worktree");
+    let resolved_by_branch = git
+        .resolve_worktree_by_branch(ResolveWorktreeByBranchRequest {
+            repository: &repository,
+            branch_name: "feature/runtime",
+        })
+        .expect("resolve linked worktree by branch");
     let nested_path = linked_path.join("src").join("nested.txt");
     let found = git
         .find_worktree(FindWorktreeRequest {
@@ -88,6 +212,11 @@ fn runtime_discovers_worktrees_and_branches() {
     assert!(
         matches!(resolved.kind(), WorktreeKind::Linked { name } if name == "feature-tree"),
         "the resolved worktree should match the linked worktree name"
+    );
+    assert_eq!(
+        resolved_by_branch.worktree_root().as_path(),
+        linked_path.as_path(),
+        "branch metadata should resolve the authoritative linked worktree path"
     );
     assert_eq!(
         found.worktree_root().as_path(),
@@ -215,13 +344,26 @@ fn runtime_creates_and_deletes_local_branches() {
     let scaffold = TestScaffold::new("runtime-branch-lifecycle").expect("create scaffold");
     seed_repository(&scaffold);
     let (git, repository) = runtime_repository(&scaffold);
+    let base_commit = scaffold
+        .run_git(["rev-parse", "HEAD"])
+        .expect("resolve base commit");
+    scaffold
+        .write_file(scaffold.repo_path(), "later.txt", "later commit\n")
+        .expect("write later commit");
+    scaffold
+        .stage_all_and_commit("later commit")
+        .expect("create later commit");
 
     let created = git
         .create_branch(CreateBranchRequest {
             repository: &repository,
             branch_name: BranchName::new("feature/runtime"),
+            commit_id: CommitId::new(base_commit.trim()),
         })
         .expect("create branch");
+    let created_commit = scaffold
+        .run_git(["rev-parse", "feature/runtime"])
+        .expect("resolve created branch");
     let branches_after_create = git
         .list_branches(ListBranchesRequest {
             repository: &repository,
@@ -241,6 +383,7 @@ fn runtime_creates_and_deletes_local_branches() {
         .expect("list branches after delete");
 
     assert_eq!(created.branch, BranchName::new("feature/runtime"));
+    assert_eq!(created_commit.trim(), base_commit.trim());
     assert!(
         branches_after_create
             .branches
@@ -258,6 +401,42 @@ fn runtime_creates_and_deletes_local_branches() {
     );
 }
 
+/// Verifies local worktree bases remain usable without contacting a configured remote.
+#[test]
+fn runtime_lists_and_resolves_local_worktree_bases_without_fetching() {
+    let scaffold = TestScaffold::new("runtime-local-worktree-bases").expect("create scaffold");
+    seed_repository(&scaffold);
+    let remote_path = scaffold.sandbox_root().join("missing-remote.git");
+    let remote_path_arg = remote_path.to_string_lossy().into_owned();
+    scaffold
+        .run_git(["remote", "add", "origin", &remote_path_arg])
+        .expect("configure origin");
+    let local_main_commit = scaffold
+        .run_git(["rev-parse", "main"])
+        .expect("resolve local main");
+
+    let (git, repository) = runtime_repository(&scaffold);
+    let bases = git
+        .list_worktree_bases(ListWorktreeBasesRequest {
+            repository: &repository,
+        })
+        .expect("list local worktree bases");
+    let resolved = git
+        .resolve_worktree_base_commit(ResolveWorktreeBaseCommitRequest {
+            repository: &repository,
+            reference_name: &BranchName::new("main"),
+        })
+        .expect("resolve local main");
+
+    assert_eq!(
+        bases.bases,
+        vec![WorktreeBase::Local {
+            branch_name: BranchName::new("main"),
+        }]
+    );
+    assert_eq!(resolved.commit_id.as_str(), local_main_commit.trim());
+}
+
 /// Verifies linked worktree lifecycle APIs create and delete linked worktrees through typed runtime requests.
 #[test]
 fn runtime_creates_and_deletes_linked_worktrees() {
@@ -265,14 +444,27 @@ fn runtime_creates_and_deletes_linked_worktrees() {
     seed_repository(&scaffold);
     let (git, repository) = runtime_repository(&scaffold);
     let worktree_path = scaffold.linked_worktree_path("feature-tree");
+    let base_commit = scaffold
+        .run_git(["rev-parse", "HEAD"])
+        .expect("resolve base commit");
+    scaffold
+        .write_file(scaffold.repo_path(), "later.txt", "later commit\n")
+        .expect("write later commit");
+    scaffold
+        .stage_all_and_commit("later commit")
+        .expect("create later commit");
 
     let created = git
         .create_worktree(CreateWorktreeRequest {
             repository: &repository,
             worktree_root: WorktreeRoot::new(&worktree_path),
             branch_name: BranchName::new("feature/runtime"),
+            base_commit_id: CommitId::new(base_commit.trim()),
         })
         .expect("create worktree");
+    let worktree_commit = scaffold
+        .run_git_in(&worktree_path, ["rev-parse", "HEAD"])
+        .expect("resolve worktree commit");
     let worktrees_after_create = git
         .list_worktrees(ListWorktreesRequest {
             repository: &repository,
@@ -291,6 +483,7 @@ fn runtime_creates_and_deletes_linked_worktrees() {
         })
         .expect("list worktrees after delete");
 
+    assert_eq!(worktree_commit.trim(), base_commit.trim());
     assert!(
         matches!(created.worktree.kind(), WorktreeKind::Linked { name } if name == "feature-tree"),
         "created worktrees should come back as linked worktrees"
