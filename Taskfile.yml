@@ -85,7 +85,7 @@ tasks:
     silent: true
     cmds:
       - pnpm --filter @ora/desktop lint
-      - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all
+      - cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
       - cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
 
   export-contracts:
@@ -232,6 +232,7 @@ tasks:
     desc: Run the desktop Tauri app in development mode
     env:
       ORA_DATA_DIR: "{{.ROOT_DIR}}/.data"
+      VSLANG: "1033"
     cmds:
       - pnpm --filter @ora/desktop tauri dev
 
