@@ -37,6 +37,14 @@ import {
 } from "../../state/stores/workflow-store";
 import { conversationKeyFor } from "../../state/stores/conversation-key";
 import { useComposerPluginSelectionStore } from "../../state/stores/composer-plugin-selection-store";
+import { useComposerInputStore } from "../../state/stores/composer-input-store";
+import { useDraftSessionsStore } from "../../state/stores/draft-sessions-store";
+import {
+  recoverFailedDraftSend,
+  DraftSendAbandonedError,
+  noteComposerSendAdoptedSession,
+  reparkDraftComposerContent,
+} from "../../state/session-drafts";
 import { useChatStore } from "../../chat-store-context";
 import { DragRegion } from "../../components/drag-region";
 import { WindowControls } from "../../components/window-controls";
@@ -87,6 +95,7 @@ function chatSurfaceKeyFor(selection: {
   projectId: string | null;
   taskId: string | null;
   sessionId: string | null;
+  draftId: string | null;
 }): string {
   return `${conversationKeyFor(selection)}|${warmTargetKey(selection) ?? ""}`;
 }
@@ -327,13 +336,42 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
     const surfaceKey = chatSurfaceKeyFor(selection);
     setPendingSend({ surfaceKey, turn: draftTurn(displayText, images) });
     let warmed: string | null;
+    const draftIdAtSend =
+      useWorkspaceSelectionStore.getState().selection.draftId;
+    // Hide × for the whole handshake — bind only happens after warm returns.
+    if (draftIdAtSend !== null) {
+      useDraftSessionsStore.getState().beginSend(draftIdAtSend);
+    }
+    const endDraftSend = () => {
+      if (draftIdAtSend !== null) {
+        useDraftSessionsStore.getState().endSend(draftIdAtSend);
+      }
+    };
+    /** Restores a draft-owned payload when Stop or navigation abandons this handshake. */
+    const abandonDraftSend = (): void => {
+      setPendingSend(null);
+      endDraftSend();
+      if (draftIdAtSend === null) return;
+      reparkDraftComposerContent({
+        draftId: draftIdAtSend,
+        text: displayText,
+        images,
+      });
+      throw new DraftSendAbandonedError();
+    };
     try {
       warmed = await ensureSessionId();
     } catch (error) {
       // The message never reached an agent, so it stays on screen carrying the
       // failure rather than disappearing with the composer's optimistic clear.
       const message = errorMessage(error);
-      if (token !== pendingSendToken.current) return;
+      if (token !== pendingSendToken.current) {
+        // Stop already cleared pendingSend; still drop it if a later path only
+        // bumped the token, so returning to this surface cannot resurrect a
+        // forever-streaming optimistic turn.
+        abandonDraftSend();
+        return;
+      }
       setPendingSend((current) =>
         current === null
           ? null
@@ -342,102 +380,153 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
               turn: { ...current.turn, status: "failed", error: message },
             },
       );
+      // Composer already cleared locally; re-park so a surface that never left
+      // the draft (or the composer's reject handler) can put the text back.
+      if (draftIdAtSend !== null) {
+        reparkDraftComposerContent({
+          draftId: draftIdAtSend,
+          text: displayText,
+          images,
+        });
+      }
+      endDraftSend();
       throw error;
     }
     // Stopped, or the user moved on while the handshake ran. The surface check is
     // not just cosmetic: proceeding would select the session below and drag the
     // user back to a chat they had left.
-    if (token !== pendingSendToken.current) return;
-    if (
-      chatSurfaceKeyFor(useWorkspaceSelectionStore.getState().selection) !==
-      surfaceKey
-    ) {
+    if (token !== pendingSendToken.current) {
+      abandonDraftSend();
       return;
     }
-    if (warmed === null) return;
+    const selectionAfterWarm = useWorkspaceSelectionStore.getState().selection;
+    if (
+      chatSurfaceKeyFor(selectionAfterWarm) !== surfaceKey ||
+      selectionAfterWarm.draftId !== draftIdAtSend
+    ) {
+      abandonDraftSend();
+      return;
+    }
+    if (warmed === null) {
+      setPendingSend(null);
+      endDraftSend();
+      return;
+    }
     // Rebound as a const so the narrowing survives into `prepare` below.
     const sessionId = warmed;
-
+    const draftId = draftIdAtSend;
     const projectId = project.id;
     let taskId = task?.id ?? null;
-    // The workflow run and the composer's applied plugins both follow the
-    // conversation onto its session id, which is now known, so this happens once
-    // instead of tracking a moving key.
-    useWorkflowStore.getState().rekey(currentKey, sessionId);
-    useComposerPluginSelectionStore.getState().rekey(currentKey, sessionId);
-    // Point the workspace at this session before anything is awaited, so the
-    // optimistic turn is on screen while its task and record are still forming.
-    const selectionStore = useWorkspaceSelectionStore.getState();
-    if (taskId === null) {
-      selectionStore.selectSessionBeforeTask(sessionId, projectId);
-    } else {
-      selectionStore.selectSession(sessionId, taskId, projectId);
-    }
-    // `sendMessage` materializes its own turn before its first `await`, so the
-    // pending one is released below in the same synchronous stretch. React
-    // commits both together: no duplicated message, and no frame back at the
-    // landing layout between the two.
-    const sent = chatStore.getState().sendMessage({
-      oraSessionId: sessionId,
-      text: displayText,
-      agentText,
-      images,
-      prepare: async () => {
-        if (taskId === null) {
-          const response = await client.task.create({
-            projectId,
-            title: directChatTitle(displayText),
-            workspaceMode: "project_root",
-          });
-          const createdTask = response.task;
-          taskId = createdTask.id;
-          queryClient.setQueryData<Task[]>(queryKeys.tasks, (current) =>
-            upsertById(current, createdTask),
-          );
-          void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
-          // Record the owning task straight away. If the attach below fails,
-          // the task is retained and the next send reuses it.
-          useWorkspaceSelectionStore
-            .getState()
-            .selectSession(sessionId, taskId, projectId);
-        }
-
-        const attachedTaskId = taskId;
-        let response: AttachSessionResponse;
-        try {
-          response = await client.session.attach({
-            sessionId,
-            taskId: attachedTaskId,
-          });
-        } finally {
-          // The attach attempt consumes the warm entry whether it succeeds or
-          // fails, so this surface must warm a fresh one next time rather than
-          // keep retrying with an id the backend no longer recognizes.
-          queryClient.removeQueries({
-            queryKey: queryKeys.warmSession(
-              { type: "task", taskId: attachedTaskId },
-              targetAgentCli,
-            ),
-          });
-          queryClient.removeQueries({
-            queryKey: queryKeys.warmSession(
-              { type: "projectRoot", projectId },
-              targetAgentCli,
-            ),
-          });
-        }
-        queryClient.setQueryData<Session[]>(queryKeys.sessions, (current) =>
-          upsertById(current, response.session),
-        );
-        useUiStore.getState().expandProject(projectId);
-        useUiStore.getState().expandTask(attachedTaskId);
-        return { availableCommands: response.availableCommands };
-      },
-    });
-    setPendingSend(null);
+    // True once attach has written a persisted session. Failures after that
+    // belong to the live chat — rolling the draft back would yank the user onto
+    // a row removeCommitted may already have deleted.
+    let sessionAttached = false;
     try {
+      if (draftId !== null) {
+        useDraftSessionsStore.getState().bindToSession(draftId, sessionId);
+      }
+      // Composer hard-fail restore needs the adopted id even after the user
+      // navigates away mid-attach; cleared once that catch settles. Keyed by the
+      // pre-rekey conversation so project/task landings (no draft) work too.
+      noteComposerSendAdoptedSession(currentKey, sessionId);
+      // The workflow run and composer-local stores follow the conversation onto
+      // its final session id before the optimistic turn changes surfaces.
+      useWorkflowStore.getState().rekey(currentKey, sessionId);
+      useComposerPluginSelectionStore.getState().rekey(currentKey, sessionId);
+      useComposerInputStore.getState().rekey(currentKey, sessionId);
+      const selectionStore = useWorkspaceSelectionStore.getState();
+      if (taskId === null) {
+        selectionStore.selectSessionBeforeTask(sessionId, projectId);
+      } else {
+        selectionStore.selectSession(sessionId, taskId, projectId);
+      }
+      // `sendMessage` materializes its own turn before its first `await`, so the
+      // pending one is released in the same synchronous stretch without a blank frame.
+      const sent = chatStore.getState().sendMessage({
+        oraSessionId: sessionId,
+        text: displayText,
+        agentText,
+        images,
+        prepare: async () => {
+          if (taskId === null) {
+            const response = await client.task.create({
+              projectId,
+              title: directChatTitle(displayText),
+              workspaceMode: "project_root",
+            });
+            const createdTask = response.task;
+            taskId = createdTask.id;
+            queryClient.setQueryData<Task[]>(queryKeys.tasks, (current) =>
+              upsertById(current, createdTask),
+            );
+            void queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
+            // Record the owning task straight away. If the attach below fails,
+            // the task is retained and the next send reuses it.
+            useWorkspaceSelectionStore
+              .getState()
+              .selectSession(sessionId, taskId, projectId);
+          }
+
+          const attachedTaskId = taskId;
+          let response: AttachSessionResponse;
+          try {
+            response = await client.session.attach({
+              sessionId,
+              taskId: attachedTaskId,
+            });
+          } finally {
+            // Attach consumes the warm entry on success and failure.
+            queryClient.removeQueries({
+              queryKey: queryKeys.warmSession(
+                { type: "task", taskId: attachedTaskId },
+                targetAgentCli,
+              ),
+            });
+            queryClient.removeQueries({
+              queryKey: queryKeys.warmSession(
+                { type: "projectRoot", projectId },
+                targetAgentCli,
+              ),
+            });
+          }
+          // Backend persistence is the recovery boundary: after attach succeeds,
+          // rolling back to a client draft could duplicate the real session.
+          sessionAttached = true;
+          try {
+            queryClient.setQueryData<Session[]>(queryKeys.sessions, (current) =>
+              upsertById(current, response.session),
+            );
+          } finally {
+            // Even a cache update failure must not leave a muted row pointing at
+            // a session that the backend already persisted.
+            if (draftId !== null) {
+              useDraftSessionsStore.getState().removeCommitted([sessionId]);
+            }
+          }
+          useUiStore.getState().expandProject(projectId);
+          useUiStore.getState().expandTask(attachedTaskId);
+          return { availableCommands: response.availableCommands };
+        },
+      });
+      setPendingSend(null);
       await sent;
+    } catch (error) {
+      // This catch includes the synchronous bind/rekey/select/send setup. Every
+      // pre-attach failure returns ownership to the draft instead of stranding
+      // it in sendInFlight.
+      if (draftId !== null && !sessionAttached) {
+        recoverFailedDraftSend({
+          draftId,
+          projectId,
+          taskId,
+          text: displayText,
+          images,
+          boundSessionId: sessionId,
+        });
+      }
+      throw error;
     } finally {
+      endDraftSend();
       await Promise.all([
         sessionsQuery.refetch(),
         taskId === null
@@ -613,10 +702,9 @@ export function WorkspaceView({ userName }: WorkspaceViewProps) {
                 disabled={!canChat}
               />
             }
-            // Failures land in chatError; the rejection itself is expected.
-            onSend={(text, images) =>
-              void sendOrStartSession(text, images).catch(() => undefined)
-            }
+            // Failures land in chatError; the rejection also lets the composer
+            // restore unsent text when the surface never left the draft.
+            onSend={(text, images) => sendOrStartSession(text, images)}
             onEmptySubmit={
               quickLaunchNodeId === null
                 ? undefined

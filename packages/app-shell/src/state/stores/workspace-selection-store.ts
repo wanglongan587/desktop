@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useDraftSessionsStore } from "./draft-sessions-store";
 
 export interface WorkspaceSelection {
   projectId: string | null;
@@ -6,6 +7,8 @@ export interface WorkspaceSelection {
   sessionId: string | null;
   /** Graph workflow run; mutually exclusive with task/session legs. */
   workflowRunId: string | null;
+  /** Client-only new-chat row; mutually exclusive with a persisted session. */
+  draftId: string | null;
 }
 
 interface WorkspaceSelectionState {
@@ -24,6 +27,15 @@ interface WorkspaceSelectionState {
   selectSessionBeforeTask: (sessionId: string, projectId: string) => void;
   /** Selects a specific session, recording its owning task and project. */
   selectSession: (sessionId: string, taskId: string, projectId: string) => void;
+  /**
+   * Selects a client-only draft chat. Session and run legs clear so the
+   * composer stays on the landing surface until the first send attaches.
+   */
+  selectDraft: (
+    draftId: string,
+    taskId: string | null,
+    projectId: string,
+  ) => void;
   /** Selects a graph workflow run under a project (clears task/session). */
   selectWorkflowRun: (workflowRunId: string, projectId: string) => void;
   /** Clears the entire selection. */
@@ -43,6 +55,7 @@ const EMPTY_SELECTION: WorkspaceSelection = {
   taskId: null,
   sessionId: null,
   workflowRunId: null,
+  draftId: null,
 };
 
 /**
@@ -51,84 +64,106 @@ const EMPTY_SELECTION: WorkspaceSelection = {
  * keeps this store a pure state machine that is trivial to unit-test.
  */
 export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>(
-  (set) => ({
-    selection: EMPTY_SELECTION,
-    selectProject: (projectId) =>
-      set({
-        selection: {
+  (set, get) => {
+    /**
+     * Replaces the complete selection before settling the draft being left.
+     * Navigation must remain responsive even if draft persistence cleanup fails.
+     */
+    const replaceSelection = (selection: WorkspaceSelection): void => {
+      const previousDraftId = get().selection.draftId;
+      set({ selection });
+      if (previousDraftId !== null && previousDraftId !== selection.draftId) {
+        useDraftSessionsStore.getState().discardIfEmpty(previousDraftId);
+      }
+    };
+
+    return {
+      selection: EMPTY_SELECTION,
+      selectProject: (projectId) => {
+        replaceSelection({
           projectId,
           taskId: null,
           sessionId: null,
           workflowRunId: null,
-        },
-      }),
-    selectTask: (taskId, projectId) =>
-      set({
-        selection: {
+          draftId: null,
+        });
+      },
+      selectTask: (taskId, projectId) => {
+        replaceSelection({
           projectId,
           taskId,
           sessionId: null,
           workflowRunId: null,
-        },
-      }),
-    selectSessionBeforeTask: (sessionId, projectId) =>
-      set({
-        selection: {
+          draftId: null,
+        });
+      },
+      selectSessionBeforeTask: (sessionId, projectId) => {
+        replaceSelection({
           projectId,
           taskId: null,
           sessionId,
           workflowRunId: null,
-        },
-      }),
-    selectSession: (sessionId, taskId, projectId) =>
-      set({
-        selection: {
+          draftId: null,
+        });
+      },
+      selectSession: (sessionId, taskId, projectId) => {
+        replaceSelection({
           projectId,
           taskId,
           sessionId,
           workflowRunId: null,
-        },
-      }),
-    selectWorkflowRun: (workflowRunId, projectId) =>
-      set({
-        selection: {
+          draftId: null,
+        });
+      },
+      selectDraft: (draftId, taskId, projectId) => {
+        replaceSelection({
+          projectId,
+          taskId,
+          sessionId: null,
+          workflowRunId: null,
+          draftId,
+        });
+      },
+      selectWorkflowRun: (workflowRunId, projectId) => {
+        replaceSelection({
           projectId,
           taskId: null,
           sessionId: null,
           workflowRunId,
-        },
-      }),
-    clearSelection: () => set({ selection: EMPTY_SELECTION }),
-    clearSessionSelection: () =>
-      set((state) => ({
-        selection: {
-          projectId: state.selection.projectId,
-          taskId: state.selection.taskId,
+          draftId: null,
+        });
+      },
+      clearSelection: () => replaceSelection(EMPTY_SELECTION),
+      clearSessionSelection: () => {
+        const current = get().selection;
+        replaceSelection({
+          projectId: current.projectId,
+          taskId: current.taskId,
           sessionId: null,
-          workflowRunId: state.selection.workflowRunId,
-        },
-      })),
-    clearTaskSelection: (projectId) =>
-      set({
-        selection: {
+          workflowRunId: current.workflowRunId,
+          draftId: null,
+        });
+      },
+      clearTaskSelection: (projectId) => {
+        replaceSelection({
           projectId,
           taskId: null,
           sessionId: null,
           workflowRunId: null,
-        },
-      }),
-    clearWorkflowRunSelection: (projectId) =>
-      set({
-        selection: {
+          draftId: null,
+        });
+      },
+      clearWorkflowRunSelection: (projectId) => {
+        replaceSelection({
           projectId,
           taskId: null,
           sessionId: null,
           workflowRunId: null,
-        },
-      }),
-    setProject: (projectId) =>
-      set({
-        selection:
+          draftId: null,
+        });
+      },
+      setProject: (projectId) => {
+        replaceSelection(
           projectId === null
             ? EMPTY_SELECTION
             : {
@@ -136,7 +171,10 @@ export const useWorkspaceSelectionStore = create<WorkspaceSelectionState>(
                 taskId: null,
                 sessionId: null,
                 workflowRunId: null,
+                draftId: null,
               },
-      }),
-  }),
+        );
+      },
+    };
+  },
 );

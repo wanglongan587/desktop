@@ -141,10 +141,11 @@ export const translationResources = {
     "sidebar.loading": "正在加载工作区…",
     "sidebar.empty": "未找到项目。",
     "sidebar.newSession": "新建会话",
+    "sidebar.dismissDraft": "关闭草稿",
     "sidebar.newTask": "新建工作树任务",
     "sidebar.newDirectChat": "新建任务",
     "sidebar.createInProject": "在此项目中新建",
-    "sidebar.newWorkflow": "新建工作流任务",
+    "sidebar.newWorkflow": "运行工作流",
     "sidebar.searchWorkflows": "搜索工作流模板",
     "sidebar.noWorkflows": "暂无已发布的工作流。",
     "sidebar.rename": "重命名",
@@ -571,6 +572,7 @@ export const translationResources = {
     "settings.workflow.runAgain": "再次运行",
     "settings.nav.permissions": "权限与执行",
     "settings.nav.privacy": "数据与隐私",
+    "settings.nav.developer": "开发者选项",
     "settings.appearance.title": "外观",
     "settings.appearance.description":
       "调整 Ora 在桌面端和 Web 端的显示方式。更改会立即应用。",
@@ -946,6 +948,34 @@ export const translationResources = {
     "settings.privacy.diagnostics": "共享诊断数据",
     "settings.privacy.diagnosticsDescription":
       "发送匿名性能和错误信息，帮助改进 Ora。",
+    "settings.developer.developerMode": "开发者模式",
+    "settings.developer.developerModeDescription":
+      "开启后，在此页面显示日志级别等用于诊断和开发的设置。此选项只控制界面可见性，不是安全权限。",
+    "settings.developer.developerModeLoading": "正在读取开发者模式…",
+    "settings.developer.developerModeSaving": "正在保存开发者模式…",
+    "settings.developer.developerModeLoadError": "无法读取开发者模式，请重试。",
+    "settings.developer.developerModeUpdateError":
+      "开发者模式更新失败，已保留上次生效的设置。",
+    "settings.developer.title": "开发者选项",
+    "settings.developer.description":
+      "开启开发者模式后，可在此页面调整当前 Ora 进程的诊断行为。此模式不会改变访问权限。",
+    "settings.developer.logLevel": "日志级别",
+    "settings.developer.logLevelDescription":
+      "立即调整当前 Ora 进程记录的日志详细程度，并保存为下次启动的偏好。",
+    "settings.developer.logLevel.trace": "Trace（最详细）",
+    "settings.developer.logLevel.debug": "Debug",
+    "settings.developer.logLevel.info": "Info（推荐）",
+    "settings.developer.logLevel.warn": "Warn",
+    "settings.developer.logLevel.error": "Error（最精简）",
+    "settings.developer.logLevelLoading": "正在读取…",
+    "settings.developer.logLevelSaving": "正在应用日志级别…",
+    "settings.developer.logLevelUnavailable": "暂时不可用",
+    "settings.developer.logLevelLoadError":
+      "无法读取当前日志级别，请稍后重试。",
+    "settings.developer.logLevelUpdateError":
+      "日志级别更新失败，已恢复为上次生效的设置。",
+    "settings.developer.logLevelVolumeWarning":
+      "Trace 和 Debug 会显著增加日志量，建议仅在诊断问题时临时使用。",
     "settings.privacy.clearHistory": "清除会话历史",
     "settings.privacy.clearHistoryDescription":
       "清除当前运行期内存中的所有 Agent 对话，不会删除项目和工作树。",
@@ -1547,10 +1577,11 @@ export const translationResources = {
     "sidebar.loading": "Loading workspace...",
     "sidebar.empty": "No projects found.",
     "sidebar.newSession": "New session",
+    "sidebar.dismissDraft": "Dismiss draft",
     "sidebar.newTask": "New worktree task",
     "sidebar.newDirectChat": "New task",
     "sidebar.createInProject": "Create in this project",
-    "sidebar.newWorkflow": "New workflow task",
+    "sidebar.newWorkflow": "Run workflow",
     "sidebar.searchWorkflows": "Search workflow templates",
     "sidebar.noWorkflows": "No published workflows yet.",
     "sidebar.rename": "Rename",
@@ -2003,6 +2034,7 @@ export const translationResources = {
     "settings.workflow.runAgain": "Run again",
     "settings.nav.permissions": "Permissions",
     "settings.nav.privacy": "Data & privacy",
+    "settings.nav.developer": "Developer options",
     "settings.appearance.title": "Appearance",
     "settings.appearance.description":
       "Adjust how Ora looks across desktop and web. Changes apply immediately.",
@@ -2438,6 +2470,35 @@ export const translationResources = {
     "settings.privacy.diagnostics": "Share diagnostics",
     "settings.privacy.diagnosticsDescription":
       "Send anonymous performance and error data to help improve Ora.",
+    "settings.developer.developerMode": "Developer mode",
+    "settings.developer.developerModeDescription":
+      "When enabled, this page shows log-level and other diagnostic or development settings. This controls UI visibility, not security permissions.",
+    "settings.developer.developerModeLoading": "Loading developer mode…",
+    "settings.developer.developerModeSaving": "Saving developer mode…",
+    "settings.developer.developerModeLoadError":
+      "Developer mode could not be loaded. Try again.",
+    "settings.developer.developerModeUpdateError":
+      "The developer-mode update failed. The last effective setting has been retained.",
+    "settings.developer.title": "Developer options",
+    "settings.developer.description":
+      "Enable developer mode to adjust diagnostic behavior for the current Ora process on this page. This mode does not change access permissions.",
+    "settings.developer.logLevel": "Log level",
+    "settings.developer.logLevelDescription":
+      "Change how much the current Ora process logs immediately and save the preference for its next start.",
+    "settings.developer.logLevel.trace": "Trace (most detailed)",
+    "settings.developer.logLevel.debug": "Debug",
+    "settings.developer.logLevel.info": "Info (recommended)",
+    "settings.developer.logLevel.warn": "Warn",
+    "settings.developer.logLevel.error": "Error (least detailed)",
+    "settings.developer.logLevelLoading": "Loading…",
+    "settings.developer.logLevelSaving": "Applying log level…",
+    "settings.developer.logLevelUnavailable": "Unavailable",
+    "settings.developer.logLevelLoadError":
+      "The current log level could not be loaded. Try again later.",
+    "settings.developer.logLevelUpdateError":
+      "The log level update failed. The last effective setting has been restored.",
+    "settings.developer.logLevelVolumeWarning":
+      "Trace and Debug can produce substantially more logs. Use them temporarily while diagnosing a problem.",
     "settings.privacy.clearHistory": "Clear conversation history",
     "settings.privacy.clearHistoryDescription":
       "Clear all Agent conversations held in memory for this runtime without removing projects or worktrees.",
