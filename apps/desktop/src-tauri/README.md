@@ -2,7 +2,13 @@
 
 `ora-desktop` is the native Tauri host for Ora. It bootstraps the shared backend, exposes desktop-only commands to the frontend, owns native windows and dialogs, and adapts operating-system capabilities such as filesystem handoff and marketplace WebViews.
 
+File-manager handoff lives in `src/open_location.rs`. Explorer reveals files in the **system** file manager (`explorer /select,` on Windows, `open -R` on macOS) instead of opening them with the default editor. Directories still open as folder windows.
+
 The crate does not own domain persistence or agent execution semantics; those remain in the shared backend and contract crates. Desktop commands translate between Tauri IPC and those stable boundaries.
+
+Desktop installs provisional logging from `ORA_LOG_LEVEL` or `info` before Backend migration, then resolves the runtime-ready level from the shared SQLite `user_config.log_level` preference when no environment override exists. It retains the logging writer guard for the process lifetime and shares a cancellation-safe runtime settings manager through Tauri state.
+
+The shared developer preferences are exposed through `get_developer_mode`, `set_developer_mode`, `get_runtime_log_level`, and `set_runtime_log_level`. These commands enter a request-correlated span before reading, persisting, reloading, or compensating; SQLite ownership remains in Backend rather than this crate. Desktop `config.json` does not store either preference.
 
 Native marketplace windows use isolated browser profiles and provider-specific navigation policies. Their download events are routed into Ora-owned application data before the frontend is notified.
 

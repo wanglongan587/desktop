@@ -5,6 +5,9 @@ import { useContractsClient } from "../../contracts-client-context";
 import { queryKeys } from "./query-keys";
 import { useWorkspaceSelectionStore } from "../stores/workspace-selection-store";
 import { useUiStore } from "../stores/ui-store";
+import { useComposerInputStore } from "../stores/composer-input-store";
+import { useDraftSessionsStore } from "../stores/draft-sessions-store";
+import { startSessionDraft } from "../session-drafts";
 import { useChatStore } from "../../chat-store-context";
 
 type QueryClient = ReturnType<typeof useQueryClient>;
@@ -29,7 +32,7 @@ export function useCreateProject() {
         project,
       ]);
       queryClient.invalidateQueries({ queryKey: queryKeys.projects });
-      useWorkspaceSelectionStore.getState().selectProject(project.id);
+      startSessionDraft({ projectId: project.id, taskId: null });
     },
   });
 }
@@ -65,6 +68,24 @@ export function useDeleteProject() {
       queryClient.invalidateQueries({ queryKey: queryKeys.projects });
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      const tasks = readCache<Task>(queryClient, queryKeys.tasks);
+      const taskIds = new Set(
+        tasks
+          .filter((task) => task.projectId === projectId)
+          .map((task) => task.id),
+      );
+      const sessions = readCache<Session>(queryClient, queryKeys.sessions);
+      const sessionIds = sessions
+        .filter((session) => taskIds.has(session.taskId))
+        .map((session) => session.id);
+      useComposerInputStore
+        .getState()
+        .clearKeys([
+          ...sessionIds,
+          ...[...taskIds].map((taskId) => `task:${taskId}`),
+        ]);
+      useDraftSessionsStore.getState().clearReturnToForSessions(sessionIds);
+      useDraftSessionsStore.getState().removeForProject(projectId);
       const selection = useWorkspaceSelectionStore.getState().selection;
       if (selection.projectId === projectId) {
         // Pick the next surviving project from the stale cache; invalidate already triggered refetch.
@@ -106,9 +127,7 @@ export function useCreateTask() {
         queryClient.invalidateQueries({
           queryKey: queryKeys.projectBranches(task.projectId),
         });
-        useWorkspaceSelectionStore
-          .getState()
-          .selectTask(task.id, task.projectId);
+        startSessionDraft({ projectId: task.projectId, taskId: task.id });
       }
       // Reveal the new row. Expanding here rather than reacting to the selection
       // keeps a plain row click free to collapse what it just selected.
@@ -147,6 +166,15 @@ export function useDeleteTask() {
     onSuccess: (_void, { taskId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.tasks });
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      const sessions = readCache<Session>(queryClient, queryKeys.sessions);
+      const sessionIds = sessions
+        .filter((session) => session.taskId === taskId)
+        .map((session) => session.id);
+      useComposerInputStore
+        .getState()
+        .clearKeys([...sessionIds, `task:${taskId}`]);
+      useDraftSessionsStore.getState().clearReturnToForSessions(sessionIds);
+      useDraftSessionsStore.getState().removeForTask(taskId);
       const selection = useWorkspaceSelectionStore.getState().selection;
       if (selection.taskId === taskId) {
         useWorkspaceSelectionStore
@@ -248,6 +276,9 @@ export function useDeleteSession() {
       client.session.delete({ sessionId }),
     onSuccess: (_void, { sessionId }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
+      useComposerInputStore.getState().clear(sessionId);
+      useDraftSessionsStore.getState().clearReturnToForSessions([sessionId]);
+      useDraftSessionsStore.getState().removeForSessions([sessionId]);
       const selection = useWorkspaceSelectionStore.getState().selection;
       if (selection.sessionId === sessionId) {
         useWorkspaceSelectionStore.getState().clearSessionSelection();
