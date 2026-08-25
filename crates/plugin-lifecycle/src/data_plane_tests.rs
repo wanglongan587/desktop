@@ -12,8 +12,8 @@ use crate::{
     PluginRuntimeFailure, PluginRuntimeLauncher, SurfaceCloser,
 };
 use ora_contracts::{
-    ActivatePluginRequest, DisablePluginRequest, EnablePluginRequest, PluginRuntimeStatus,
-    StopPluginRequest, UninstallPluginRequest,
+    ActivatePluginRequest, DisablePluginRequest, EnablePluginRequest, PluginDataDisposition,
+    PluginRuntimeStatus, StopPluginRequest, UninstallPluginRequest,
 };
 use ora_db::{
     DatabaseBootstrapper, DatabaseLocation, SqlitePluginStateRepository, default_migration_catalog,
@@ -259,7 +259,7 @@ fn write_workbench_plugin_package(data_dir: &Path, name: &str) {
         package_root.join("orax.toml"),
         format!(
             r#"resolver = 1
-name = "{name}"
+identifier = "{name}"
 namespace = "official"
 kind = "workbench"
 version = "1.0.0"
@@ -647,6 +647,7 @@ async fn surfaces_close_before_the_runtime_stops() {
     lifecycle
         .uninstall_plugin(UninstallPluginRequest {
             plugin_id: "official/ora.example".to_string(),
+            data_disposition: PluginDataDisposition::Delete,
         })
         .await
         .expect("uninstall plugin");

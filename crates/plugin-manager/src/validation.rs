@@ -2,6 +2,7 @@ use crate::skill::{InstalledSkillDescriptor, validate_skill};
 use crate::webview::{InstalledWebviewDescriptor, validate_webview};
 use crate::workbench::{InstalledWorkbenchDescriptor, validate_workbench};
 use ora_domain::PluginId;
+use ora_plugin_config::{ConfigurationError, ConfigurationService};
 use ora_plugin_manifest::{PluginKind, PluginManifest};
 use ora_utils::path::{CanonicalPathRoot, PortableRelativePath};
 use semver::Version;
@@ -75,6 +76,15 @@ pub struct InstalledPlugin {
     pub contributes: PluginContribution,
     /// Trusted SVG source for the package icon, absent when the package ships none.
     pub logo: Option<String>,
+    pub configuration_declaration: PluginConfigurationDeclarationValidity,
+}
+
+/// Records whether an immutable configuration declaration can participate in installation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PluginConfigurationDeclarationValidity {
+    NotDeclared,
+    Valid,
+    Invalid { reason: String },
 }
 
 /// Reports a semantic manifest constraint after structural deserialization succeeds.
@@ -108,8 +118,12 @@ pub(crate) fn validate(
     let name = manifest.name().as_str();
     // Both segments passed the manifest grammar, which is a strict subset of what the domain
     // id accepts, so this conversion cannot fail for a reason the user could act on.
-    let id = PluginId::new(manifest.namespace().as_str(), name)
-        .map_err(|error| invalid("name", format!("plugin id is not representable: {error}")))?;
+    let id = PluginId::new(manifest.namespace().as_str(), name).map_err(|error| {
+        invalid(
+            "identifier",
+            format!("plugin id is not representable: {error}"),
+        )
+    })?;
     let contributes = match manifest.kind() {
         PluginKind::Agent => PluginContribution::Agent(InstalledPluginAgent {
             display_name: name.to_owned(),
@@ -132,6 +146,22 @@ pub(crate) fn validate(
         }
         PluginKind::Skill => PluginContribution::Skill(validate_skill(package_root)?),
     };
+    let configuration_declaration =
+        match ConfigurationService::declaration_from_package(package_root) {
+            Ok(None) => PluginConfigurationDeclarationValidity::NotDeclared,
+            Ok(Some(_)) => PluginConfigurationDeclarationValidity::Valid,
+            Err(ConfigurationError::InvalidDeclaration(error)) => {
+                PluginConfigurationDeclarationValidity::Invalid {
+                    reason: error.to_string(),
+                }
+            }
+            Err(error) => {
+                return Err(invalid(
+                    "assets/config.json",
+                    format!("configuration declaration could not be read: {error}"),
+                ));
+            }
+        };
 
     Ok(InstalledPlugin {
         package_root: package_root.to_path_buf(),
@@ -143,6 +173,7 @@ pub(crate) fn validate(
         license: manifest.license().map(str::to_owned),
         contributes,
         logo,
+        configuration_declaration,
     })
 }
 
