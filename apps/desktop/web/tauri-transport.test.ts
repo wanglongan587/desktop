@@ -17,6 +17,36 @@ describe("createTauriTransport", () => {
     expect(invoke).toHaveBeenCalledWith("list_projects", { request: {} });
   });
 
+  it("maps workspace listing to the Desktop command", async () => {
+    const response = { workspaces: [] };
+    const invoke = vi.fn().mockResolvedValue(response);
+    const transport = createTauriTransport(invoke);
+
+    await expect(
+      transport.send({
+        operationName: "listWorkspaces",
+        request: {},
+      }),
+    ).resolves.toEqual(response);
+    expect(invoke).toHaveBeenCalledWith("list_workspaces", { request: {} });
+  });
+
+  it("maps workflow run rename to the Desktop command", async () => {
+    const response = { workflowRun: {} };
+    const invoke = vi.fn().mockResolvedValue(response);
+    const transport = createTauriTransport(invoke);
+
+    await expect(
+      transport.send({
+        operationName: "renameWorkflowRun",
+        request: {},
+      }),
+    ).resolves.toEqual(response);
+    expect(invoke).toHaveBeenCalledWith("rename_workflow_run", {
+      request: {},
+    });
+  });
+
   it("maps installed plugin discovery to the Desktop snapshot command", async () => {
     const response = { plugins: [] };
     const invoke = vi.fn().mockResolvedValue(response);
@@ -59,6 +89,21 @@ describe("createTauriTransport", () => {
       }),
     ).resolves.toEqual(response);
     expect(invoke).toHaveBeenCalledWith("sync_available_plugins", {
+      request: {},
+    });
+  });
+  it("lists marketplace sources through the Desktop plugin command", async () => {
+    const response = { sources: [] };
+    const invoke = vi.fn().mockResolvedValue(response);
+    const transport = createTauriTransport(invoke);
+
+    await expect(
+      transport.send({
+        operationName: "listMarketplaceSources",
+        request: {},
+      }),
+    ).resolves.toEqual(response);
+    expect(invoke).toHaveBeenCalledWith("list_marketplace_sources", {
       request: {},
     });
   });
@@ -108,7 +153,7 @@ describe("createTauriTransport", () => {
     });
   });
 
-  it("maps task diff reads to the shared desktop backend command", async () => {
+  it("maps workspace diff reads to the shared desktop backend command", async () => {
     const response = {
       baseCommitId: "base",
       headCommitId: "head",
@@ -116,15 +161,15 @@ describe("createTauriTransport", () => {
     };
     const invoke = vi.fn().mockResolvedValue(response);
     const transport = createTauriTransport(invoke);
-    const request = { taskId: "task-1", scope: "branch" as const };
+    const request = { workspaceId: "workspace-1", scope: "branch" as const };
 
     await expect(
       transport.send({
-        operationName: "getTaskDiff",
+        operationName: "getWorkspaceDiff",
         request,
       }),
     ).resolves.toEqual(response);
-    expect(invoke).toHaveBeenCalledWith("get_task_diff", { request });
+    expect(invoke).toHaveBeenCalledWith("get_workspace_diff", { request });
   });
 
   it.each([

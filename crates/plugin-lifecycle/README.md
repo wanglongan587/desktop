@@ -1,7 +1,7 @@
 # ora-plugin-lifecycle
 
 `ora-plugin-lifecycle` owns backend-only orchestration for installed Ora plugins. It joins
-filesystem discovery, durable eligibility, process-scoped runtime state, application
+filesystem discovery, runtime state, application
 invalidations, and the process data plane (calls and notifications) behind one lifecycle
 interface.
 
@@ -9,17 +9,14 @@ interface.
 
 This crate is the sole owner of plugin processes. Nothing else in Ora starts, stops, or reaps one,
 which is what keeps the runtime state reported to the settings surface identical to the processes
-that actually exist. When a process starts depends on the contribution kind: enabling an agent
-plugin also launches it, because its agent supervisor attaches to a running process rather than
-starting one, so durable intent and reported runtime never disagree beyond the transition itself;
-enabling a workbench plugin only records eligibility, because its process is started on demand by
-the first surface that needs it and stopped again when it has been idle. Webview and skill plugins
-have no process; enabling them records eligibility and reports an `enabled` + `stopped` state.
+that actually exist. Every installed plugin is available. Agent and workbench processes start on
+demand and may be stopped without changing availability. Webview, skill, and MCP plugins have no
+process and therefore remain in the `stopped` runtime state.
 
 Consumers that need to speak a protocol over a plugin connect to it instead of launching it
 (`ensure_running` / `connection`, see the data plane below). This is how the agent runtime reaches
 an agent plugin: it holds a `PluginConnection` pinned to one generation and reads that generation's
-notifications through the sink, while enable, stop, scan, and uninstall keep deciding how long the
+notifications through the sink, while activate, stop, scan, and uninstall decide how long the
 process lives.
 
 Only explicit scans rebuild the installed snapshot. List responses additionally read the current
@@ -29,16 +26,18 @@ persisted completeness without a separate editor fetch. When the cached package 
 a traversable directory, the summary stays `NotDeclared` rather than `configuration_load_failed`. Per-plugin actions operate on cached
 identity, serialize changes for the same plugin, and allow unrelated plugins to progress
 independently.
-Missing durable state means disabled, and only the first enable creates a durable row. A package
-with an invalid Plugin Configuration declaration remains visible but cannot be enabled. Uninstall
+Plugins begin stopped whenever the lifecycle opens. A scan retains runtime state for a package
+that remains installed and valid, while a newly discovered package becomes immediately available
+and stopped. A package with an invalid Plugin Configuration declaration remains visible but cannot
+start. Uninstall
 closes surfaces, stops the process, then atomically stages the complete
 `plugins/installed/<namespace>/<name>` tree and, when selected, `plugins/data/<namespace>/<name>`
-before deleting durable state. A repository or staging failure attempts every staged move in
-reverse order and reports any rollback failure; after commit, staging cleanup is independent and
+before committing the removal. A staging failure attempts every staged move in reverse order and
+reports any rollback failure; after commit, staging cleanup is independent and
 empty namespace directories are pruned. Cleanup failures retain their staged paths in memory and
 are retried by later scans without reversing the already committed uninstall.
-Each scan reapplies durable eligibility to every retained package, stops runtimes that durable state
-no longer permits, and removes durable rows for packages missing from disk. To return one coherent
+Each scan retains runtime state for valid packages, stops runtimes whose packages were
+removed or became invalid, and forgets removed packages. To return one coherent
 snapshot, a scan acquires cached plugin operation locks in stable identifier order and may therefore
 wait for an in-flight launch or stop to finish. This intentionally favors reconciliation consistency
 over a partially refreshed result.
@@ -57,8 +56,8 @@ directory.
 
 Before launching, the lifecycle creates `<data-dir>/plugins/data/<namespace>/<name>/` (with
 `downloads/`) through `PluginDataDirectories`, derives Deno permissions from the plugin kind
-(`permissions_for`: workbench plugins get no `--allow-*` flag at all; webview and skill plugins
-are never launched; agent plugins keep the broad historical set, also exported as
+(`permissions_for`: workbench plugins get no `--allow-*` flag at all; webview, skill, and MCP
+plugins are never launched; agent plugins keep the broad historical set, also exported as
 `agent_permissions` for the backend's agent supervisor, and narrowing it is out of scope here),
 and passes the package root as working directory. No
 environment variable is injected: a plugin learns nothing about host paths. A permission path
@@ -70,8 +69,8 @@ launch, never by request params.
 
 After a successful handshake the registration is validated against the manifest kind
 (`validate_registration`). Workbench registrations may expose well-formed methods but cannot
-declare emitted notifications. Webview and skill plugins cannot register because they have no
-process. Agent contracts are verified by the backend's agent runtime, not here.
+declare emitted notifications. Webview, skill, and MCP plugins cannot register because they have
+no process. Agent contracts are verified by the backend's agent runtime, not here.
 
 ## Storage host methods
 
@@ -112,14 +111,14 @@ observes the attempt mismatch and returns.
 ## Surface closing
 
 `SurfaceCloser` is installed after construction via `set_surface_closer` because surfaces belong to
-the desktop shell, which exists only after the backend is built. Stop, disable, and uninstall call
+the desktop shell, which exists only after the backend is built. Stop and uninstall call
 it inside the plugin's operation lock before stopping the runtime, so "uninstall while a surface is
 open" needs no coordination beyond that lock. Until a closer is installed, closing is a no-op.
 
 ## Boundaries
 
-Filesystem package parsing remains in `ora-plugin-manager`, process protocol ownership remains in
-`ora-plugin-runtime`, and durable eligibility remains behind the `ora-application` repository port.
+Filesystem package parsing remains in `ora-plugin-manager`, while process protocol ownership remains
+in `ora-plugin-runtime`.
 The production adapter launches Deno through the shared process-tree supervisor with the sandbox
 permissions the contribution kind requires, and waits for confirmed process exit before filesystem
 cleanup. Startup discovery also reports every package that was skipped, because a package that

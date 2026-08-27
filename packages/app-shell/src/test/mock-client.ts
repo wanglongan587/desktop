@@ -4,6 +4,8 @@ import {
   type Agent,
   type AgentRuntimeStatus,
   type AvailablePlugin,
+  type MarketplaceSource,
+  type ProxySettings,
   type ContractsClient,
   type InstalledPlugin,
   type PluginConfigurationDetails,
@@ -75,16 +77,17 @@ export interface MockClientState {
   /**
    * What the agent runtime reports reaching, which is what decides the agents the pickers offer.
    *
-   * An agent missing from this list is one nothing supervises — an uninstalled plugin package.
+   * An agent missing from this list is one nothing supervises 鈥?an uninstalled plugin package.
    */
   agentRuntimeStatuses: AgentRuntimeStatus[];
   availablePlugins: AvailablePlugin[];
   availablePluginsUpdatedAt: bigint;
+  marketplaceSources: MarketplaceSource[];
+  proxySettings: ProxySettings | null;
   /**
    * The package a local `.orax` import should materialize; `null` rejects that import.
    * Undefined means imports are not configured and always fail in tests. A concrete target is
-   * committed with `enabled: true`, mirroring the backend finalize step that auto-enables the
-   * imported package.
+   * committed as an installed package that is immediately available.
    */
   importTarget?: InstalledPlugin | null;
   developerMode: { enabled: boolean };
@@ -134,6 +137,8 @@ export function createMockClientState(): MockClientState {
     })),
     availablePlugins: [],
     availablePluginsUpdatedAt: 0n,
+    marketplaceSources: [],
+    proxySettings: null,
     developerMode: { enabled: false },
     runtimeLogLevel: {
       configuredLevel: "info",
@@ -250,6 +255,17 @@ export function createMockClient(state: MockClientState): ContractsClient {
     },
     workspace: {
       list: async () => ({ workspaces: visibleWorkspaces(state) }),
+      getDiff: async () => ({
+        baseCommitId: "base",
+        headCommitId: "head",
+        patch: "",
+      }),
+      commitChanges: async () => {
+        throw new Error("commitChanges not implemented in mock");
+      },
+      pushBranch: async () => {
+        throw new Error("pushBranch not implemented in mock");
+      },
     },
     task: {
       list: async () => ({ tasks: [...state.tasks] }),
@@ -295,17 +311,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
           branchName: `task/${req.taskId}`,
         },
       }),
-      getDiff: async () => ({
-        baseCommitId: "base",
-        headCommitId: "head",
-        patch: "",
-      }),
-      commitChanges: async () => {
-        throw new Error("commitChanges not implemented in mock");
-      },
-      pushBranch: async () => {
-        throw new Error("pushBranch not implemented in mock");
-      },
     },
     session: {
       list: async () => ({ sessions: [...state.sessions] }),
@@ -439,33 +444,40 @@ export function createMockClient(state: MockClientState): ContractsClient {
         updatedAt: state.availablePluginsUpdatedAt,
         plugins: [...state.availablePlugins],
       }),
+      listSources: async () => ({ sources: [...state.marketplaceSources] }),
+      addSource: async (req) => {
+        if (state.marketplaceSources.some((source) => source.url === req.url))
+          throw new Error(`marketplace source ${req.url} already exists`);
+        const source = {
+          url: req.url,
+          branch: req.branch,
+          useProxy: req.useProxy,
+        };
+        state.marketplaceSources.push(source);
+        return { sources: [...state.marketplaceSources] };
+      },
+      deleteSource: async (req) => {
+        const idx = state.marketplaceSources.findIndex(
+          (source) => source.url === req.url,
+        );
+        if (idx < 0) throw new Error(`marketplace source ${req.url} not found`);
+        state.marketplaceSources.splice(idx, 1);
+        return { sources: [...state.marketplaceSources] };
+      },
+      updateSource: async (req) => {
+        const source = state.marketplaceSources.find(
+          (candidate) => candidate.url === req.url,
+        );
+        if (source === undefined)
+          throw new Error(`marketplace source ${req.url} not found`);
+        source.useProxy = req.useProxy;
+        return { sources: [...state.marketplaceSources] };
+      },
       syncAvailable: async () => ({
         updatedAt: state.availablePluginsUpdatedAt,
         plugins: [...state.availablePlugins],
       }),
       scan: async () => ({ plugins: [...state.installedPlugins] }),
-      enable: async (req) => {
-        const plugin = state.installedPlugins.find(
-          (p) => p.id === req.pluginId,
-        );
-        if (!plugin)
-          throw new Error(`installed plugin ${req.pluginId} not found`);
-        plugin.enabled = true;
-        // Enabling a plugin is also what starts it, so the backend answers with the
-        // starting runtime and reports running once the process is up.
-        plugin.runtime = "starting";
-        return { plugin };
-      },
-      disable: async (req) => {
-        const plugin = state.installedPlugins.find(
-          (p) => p.id === req.pluginId,
-        );
-        if (!plugin)
-          throw new Error(`installed plugin ${req.pluginId} not found`);
-        plugin.enabled = false;
-        plugin.runtime = "stopped";
-        return { plugin };
-      },
       activate: async (req) => {
         const plugin = state.installedPlugins.find(
           (p) => p.id === req.pluginId,
@@ -500,7 +512,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (target === undefined)
           throw new Error(`import not configured for ${req.path}`);
         if (target === null) throw new Error(`import failed for ${req.path}`);
-        state.installedPlugins.push({ ...target, enabled: true });
+        state.installedPlugins.push({ ...target });
         return { pluginId: target.id };
       },
       install: async (req) => {
@@ -520,7 +532,6 @@ export function createMockClient(state: MockClientState): ContractsClient {
           license: null,
           kind: "agent",
           agentDisplayName: available.name,
-          enabled: true,
           logo: available.logo,
           installationValidity: { validity: "valid" },
           configuration: { state: "not_declared" },
@@ -629,6 +640,13 @@ export function createMockClient(state: MockClientState): ContractsClient {
         cancelled: true,
       }),
     },
+    proxy: {
+      get: async () => ({ settings: state.proxySettings }),
+      set: async (req) => {
+        state.proxySettings = structuredClone(req.settings);
+        return { settings: state.proxySettings };
+      },
+    },
     fileSystem: {
       listWorkspaceDirectory: async () => ({ path: "", entries: [] }),
       listProjectDirectory: async () => ({ path: "", entries: [] }),
@@ -708,7 +726,7 @@ export function createMockClient(state: MockClientState): ContractsClient {
           createdAt: now,
           updatedAt: now,
         };
-        state.workflows.push({ workflow, draft, published: [] });
+        state.workflows.unshift({ workflow, draft, published: [] });
         return { workflow, draft };
       },
       get: async (req) => {

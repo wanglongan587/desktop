@@ -17,6 +17,10 @@ sees a `RuntimeConnection` and cannot tell which kind of provider produced it.
 - Read the plugin's pre-session model list through `agent/listModels`.
 - Relay ACP messages in both directions as `agent/acp` notifications.
 - Ask the plugin to stop its agent before the lifecycle ends the plugin's process tree.
+- Convert registered Workspace-relative Skill locators into host-owned Effect surfaces. The
+  canonical Plugin ID is the consumer identity; a plugin never chooses that persisted identity.
+- Define `effect/waitForIdle` and `effect/restart` as the coordination boundary for surfaces using
+  `wait_for_idle_and_restart`.
 
 ## Non-responsibilities
 
@@ -79,6 +83,27 @@ always the host's.
 The same boundary applies before a connection generation is published: contract verification,
 `agent/start`, model discovery, or ACP initialization failure stops the plugin before the
 connection supervisor schedules another attempt.
+
+## Effect coordination
+
+An Agent registration may include `effectSurfaces`. Each declaration contains
+`workspaceRelativePath`, `materializationFormat`, and `coordination`; it never contains an absolute
+Workspace path. Ora validates the portable relative locator, combines declarations from all live
+Agent plugins, and persists one merged surface/consumer snapshot for every local Workspace.
+
+For `wait_for_idle_and_restart`, the plugin must register both `effect/waitForIdle` and
+`effect/restart`. `effect/waitForIdle` is idempotent by `surfaceKey`: it returns
+`waiting_for_idle` while any affected instance is serving a turn, and returns `ready` only after it
+has also blocked new turns that could read the surface. The barrier remains held until
+`effect/restart` is called with the stable locator and applied generation. Restart must replace or
+reinitialize every affected Agent instance before releasing the barrier. Ora can retry either call
+after a process or database failure, so both methods must be idempotent.
+
+`ora_backend::effect_worker` drives both calls. It claims a durable reconcile request and holds
+that claim's lease while coordination waits on a consumer, so a plugin that never answers costs one
+lease interval rather than the surface. A consumer whose plugin is not currently running is skipped
+rather than started: it holds no turn a mutation could corrupt, and it reads the surface fresh when
+it next starts.
 
 ## Sandboxing
 

@@ -260,14 +260,6 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "TaskWorkspace"
         | "UpdateTaskRequest"
         | "UpdateTaskResponse" => "task",
-        // taskDiff
-        "CommitTaskChangesRequest"
-        | "CommitTaskChangesResponse"
-        | "GetTaskDiffRequest"
-        | "GetTaskDiffResponse"
-        | "PushTaskBranchRequest"
-        | "PushTaskBranchResponse"
-        | "TaskDiffScope" => "task_diff",
         // session
         "AttachSessionRequest"
         | "AttachSessionResponse"
@@ -350,10 +342,6 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         "ActivatePluginRequest"
         | "ActivatePluginResponse"
         | "AvailablePlugin"
-        | "DisablePluginRequest"
-        | "DisablePluginResponse"
-        | "EnablePluginRequest"
-        | "EnablePluginResponse"
         | "GetPluginConfigurationRequest"
         | "GetPluginConfigurationResponse"
         | "PluginConfigurationCompleteness"
@@ -387,7 +375,23 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "InstallPluginRequest"
         | "InstallPluginResponse"
         | "ImportPluginRequest"
-        | "ImportPluginResponse" => "plugin",
+        | "ImportPluginResponse"
+        | "AddMarketplaceSourceRequest"
+        | "AddMarketplaceSourceResponse"
+        | "DeleteMarketplaceSourceRequest"
+        | "DeleteMarketplaceSourceResponse"
+        | "ListMarketplaceSourcesRequest"
+        | "ListMarketplaceSourcesResponse"
+        | "UpdateMarketplaceSourceResponse"
+        | "UpdateMarketplaceSourceRequest"
+        | "MarketplaceSource" => "plugin",
+        // proxy
+        "GetProxySettingsRequest"
+        | "GetProxySettingsResponse"
+        | "ProxySettings"
+        | "SetProxySettingsRequest"
+        | "SetProxySettingsResponse" => "proxy",
+
         // workflow
         "CreateWorkflowRequest"
         | "CreateWorkflowResponse"
@@ -454,6 +458,14 @@ fn contract_module_for_type(type_name: &str) -> &'static str {
         | "Workspace"
         | "ListWorkspacesRequest"
         | "ListWorkspacesResponse" => "workspace",
+        // workspaceDiff
+        "CommitWorkspaceChangesRequest"
+        | "CommitWorkspaceChangesResponse"
+        | "GetWorkspaceDiffRequest"
+        | "GetWorkspaceDiffResponse"
+        | "PushWorkspaceBranchRequest"
+        | "PushWorkspaceBranchResponse"
+        | "WorkspaceDiffScope" => "workspace_diff",
         // fileSystem
         "ListWorkspaceDirectoryRequest"
         | "ListWorkspaceDirectoryResponse"
@@ -567,8 +579,8 @@ mod tests {
             "session.ts",
             "skill.ts",
             "task.ts",
-            "task_diff.ts",
             "workflow.ts",
+            "workspace_diff.ts",
         ];
 
         for generated_file in generated_files {

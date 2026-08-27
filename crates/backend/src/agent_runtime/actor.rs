@@ -963,18 +963,20 @@ mod tests {
     use crate::app_event::AppEventHub;
     use crate::clock::SystemClock;
     use crate::plugin::PluginApi;
+    use crate::user_config::UserConfigApi;
     use ora_db::{
         DatabaseBootstrapper, DatabaseLocation, RepositoryPool, default_migration_catalog,
     };
     use ora_domain::{AgentCli, AuditFields, SessionId, SessionStatus, SessionTitle, WorkspaceId};
     use ora_scheduler::Scheduler;
     use std::path::Path;
+    use std::sync::Arc;
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio::sync::{mpsc, oneshot};
     use tokio::time::timeout;
 
-    /// Opens one migrated pool so the plugin host can read its durable eligibility table.
+    /// Opens one migrated pool for the plugin host's database-backed collaborators.
     fn test_repository_pool(root: &Path) -> RepositoryPool {
         DatabaseBootstrapper::system()
             .bootstrap_repository_pool(
@@ -993,6 +995,7 @@ mod tests {
                 PathBuf::from("deno"),
                 SystemClock,
                 AppEventHub::new().publisher(),
+                Arc::new(UserConfigApi::new(pool.clone())),
             )
             .expect("open plugin host"),
         )
