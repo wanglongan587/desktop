@@ -19,6 +19,7 @@ export type ContractError =
     | { "code": "agent_name_conflict"; "params": EmptyErrorParams }
     | { "code": "agent_not_found"; "params": EmptyErrorParams }
     | { "code": "plugin_not_found"; "params": EmptyErrorParams }
+    | { "code": "plugin_host_incompatible"; "params": EmptyErrorParams }
     | {
       "code": "plugin_configuration_declaration_invalid";
       "params": EmptyErrorParams;
@@ -61,7 +62,7 @@ export type ContractError =
     }
     | { "code": "workspace_diff_too_large"; "params": EmptyErrorParams }
     | { "code": "session_not_found"; "params": EmptyErrorParams }
-    | { "code": "agent_cli_not_found"; "params": EmptyErrorParams }
+    | { "code": "agent_not_installed"; "params": EmptyErrorParams }
     | { "code": "agent_runtime_unavailable"; "params": EmptyErrorParams }
     | { "code": "session_busy"; "params": EmptyErrorParams }
     | { "code": "session_stopped"; "params": EmptyErrorParams }
@@ -195,6 +196,7 @@ export type PublicError =
   | { "code": "agent_name_conflict"; "params": EmptyErrorParams }
   | { "code": "agent_not_found"; "params": EmptyErrorParams }
   | { "code": "plugin_not_found"; "params": EmptyErrorParams }
+  | { "code": "plugin_host_incompatible"; "params": EmptyErrorParams }
   | {
     "code": "plugin_configuration_declaration_invalid";
     "params": EmptyErrorParams;
@@ -234,7 +236,7 @@ export type PublicError =
   }
   | { "code": "workspace_diff_too_large"; "params": EmptyErrorParams }
   | { "code": "session_not_found"; "params": EmptyErrorParams }
-  | { "code": "agent_cli_not_found"; "params": EmptyErrorParams }
+  | { "code": "agent_not_installed"; "params": EmptyErrorParams }
   | { "code": "agent_runtime_unavailable"; "params": EmptyErrorParams }
   | { "code": "session_busy"; "params": EmptyErrorParams }
   | { "code": "session_stopped"; "params": EmptyErrorParams }

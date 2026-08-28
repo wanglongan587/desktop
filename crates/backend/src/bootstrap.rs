@@ -217,12 +217,24 @@ impl Backend {
         // Durable Effect reconciliation: the first pass replays every surface a previous process
         // left short of its Desired generation, including the retirement cleanup an uninstall
         // started but could not finish.
-        let effect_worker = crate::effect_worker::EffectWorker::new(pool.clone(), plugin.clone());
+        let effect_worker = crate::effect_worker::EffectWorker::new(
+            pool.clone(),
+            plugin.clone(),
+            agent_runtime.clone(),
+        );
         effect_worker.recover();
-        plugin.set_effect_reconcile(effect_worker.spawn());
+        // Creating a Workspace is not something a consumer declaration can observe, so both create
+        // paths wake the worker to converge it promptly instead of at the next scan.
+        let effect_reconcile = effect_worker.spawn();
+        plugin.set_effect_reconcile(effect_reconcile.clone());
 
         Ok(Self {
-            project: Arc::new(ProjectApi::new(pool.clone(), sessions_root.clone(), clock)),
+            project: Arc::new(ProjectApi::new(
+                pool.clone(),
+                sessions_root.clone(),
+                clock,
+                effect_reconcile.clone(),
+            )),
             task: Arc::new(TaskApi::new(
                 pool.clone(),
                 worktree_root.clone(),
@@ -230,6 +242,7 @@ impl Backend {
                 sessions_root.clone(),
                 repository_gates,
                 clock,
+                effect_reconcile,
             )),
             workspace_diff: Arc::new(WorkspaceDiffApi::new(
                 pool.clone(),
@@ -407,6 +420,20 @@ impl Backend {
         request: InstallPluginRequest,
     ) -> Result<InstallPluginResponse, BackendError> {
         let response = self.plugin.install(request).await?;
+        self.agent_runtime.sync_plugin_agents();
+        Ok(response)
+    }
+
+    /// Updates one installed marketplace plugin to the version its source publishes and
+    /// reconciles the agent set afterwards.
+    ///
+    /// The agent set is reconciled so a replaced agent package supplies a reachable agent in this
+    /// process rather than only after the next restart.
+    pub async fn update_plugin(
+        &self,
+        request: UpdatePluginRequest,
+    ) -> Result<UpdatePluginResponse, BackendError> {
+        let response = self.plugin.update(request).await?;
         self.agent_runtime.sync_plugin_agents();
         Ok(response)
     }

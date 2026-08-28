@@ -10,8 +10,8 @@ interface.
 This crate is the sole owner of plugin processes. Nothing else in Ora starts, stops, or reaps one,
 which is what keeps the runtime state reported to the settings surface identical to the processes
 that actually exist. Every installed plugin is available. Agent and workbench processes start on
-demand and may be stopped without changing availability. Webview, skill, and MCP plugins have no
-process and therefore remain in the `stopped` runtime state.
+demand and may be stopped without changing availability. Webview, skill, MCP, and Hook plugins have
+no process and therefore remain in the `stopped` runtime state.
 
 Consumers that need to speak a protocol over a plugin connect to it instead of launching it
 (`ensure_running` / `connection`, see the data plane below). This is how the agent runtime reaches
@@ -69,10 +69,17 @@ launch, never by request params.
 
 After a successful handshake the registration is validated against the manifest kind
 (`validate_registration`). Workbench registrations may expose well-formed methods but cannot
-declare emitted notifications. Webview, skill, and MCP plugins cannot register because they have
-no process. Agent contracts are verified by the backend's agent runtime, not here.
+declare emitted notifications. Webview, skill, MCP, and Hook plugins cannot register because they
+have no process. Agent contracts are verified by the backend's agent runtime, not here.
 
-## Storage host methods
+## Host request methods
+
+Every plugin process launches with exactly one `HostRequestHandler` (`ora-plugin-runtime`'s
+`launch` is monomorphic over it), so `DenoPluginRuntimeLauncher::launch` composes the two request
+namespaces below into one small dispatcher (`PluginHostRequests` in `runtime.rs`) that routes by
+method prefix.
+
+### Storage
 
 `PluginStorage` serves `ora/storage/list`, `read`, `write`, and `remove`, all taking a logical
 `path` relative to the plugin's data directory (`""` is the directory itself for `list`):
@@ -92,6 +99,47 @@ capped at `MAX_STORAGE_FILE_BYTES` (8 MiB) in both directions because base64 mus
 frame. Failures are JSON-RPC errors whose `data.kind` is one of `invalid_params` (`-32602`),
 `invalid_path` (`-32602`), `not_found` (`-32004`), `too_large` (`-32005`), or `io` (`-32000`);
 unknown `ora/storage/*` methods get `-32601`. Filesystem work runs on the blocking pool.
+
+### Child processes
+
+`PluginProcessHost` lets a plugin ask the host to own a subprocess on its behalf instead of
+spawning one itself inside its own sandboxed runtime — the process is created and torn down
+through `ora-process`'s tree-wide termination (a Windows Job Object or a Unix process group), the
+same guarantee every other Ora-managed child process already gets. Only agent plugins can reach
+it: `DenoPluginRuntimeLauncher` mounts `PluginProcessHost` per launch based on
+`PluginLaunchRequest::allow_childprocess`, which is set only for the agent contribution kind. A
+workbench, webview, skill, or MCP plugin runs with zero Deno permissions specifically so it cannot
+start a process (see `permissions::permissions_for`); every `ora/childprocess/*` call from one of
+those kinds gets the same `-32601` a genuinely unknown method would.
+
+| Method                        | Params                           | Result                                   |
+| ----------------------------- | -------------------------------- | ---------------------------------------- |
+| `ora/childprocess/spawn`      | `{ command, args?, cwd?, env? }` | `{ processId, pid }`                     |
+| `ora/childprocess/write`      | `{ processId, bytesBase64 }`     | `{}`                                     |
+| `ora/childprocess/closeStdin` | `{ processId }`                  | `{}` (signals EOF, does not kill)        |
+| `ora/childprocess/kill`       | `{ processId }`                  | `{}` (idempotent, best-effort tree-kill) |
+
+The host pushes back three notifications the plugin never declares receiving (mirroring how
+`agent/acp` already flows host→plugin): `ora/childprocess/stdout` and `ora/childprocess/stderr`
+(`{ processId, bytesBase64 }`, raw chunks — the plugin owns any line framing) and
+`ora/childprocess/exit` (`{ processId, code, signal }`, `signal` only ever set on Unix).
+`processId` is scoped to one plugin generation, not globally unique. Failures carry `data.kind`
+`invalid_params` / `invalid_command` (`-32602`), `not_found` (`-32004`), `program_not_found` or
+`io` (`-32000`) — `program_not_found` means the OS could not resolve the executable, distinct from
+any other spawn or I/O failure. `write` rejects a `bytesBase64` payload that would decode to more
+than `MAX_WRITE_BYTES` (8 MiB, mirroring `MAX_STORAGE_FILE_BYTES`) as `invalid_params` before
+decoding it, so a plugin cannot force unbounded host memory growth through one oversized write.
+
+The exit notification for one process is never sent ahead of its last `stdout`/`stderr` chunk: the
+exit watcher joins that process's output-pumping tasks before pushing `ora/childprocess/exit`,
+even though the process's `wait()` and its pipes are read by independent tasks that would otherwise
+race.
+
+Every process a plugin generation spawned this way is killed, best effort, the moment that
+generation's `PluginRuntime` reports exit for any reason — intentional stop, uninstall, restart,
+or failure (`PluginProcessHost::kill_all`, awaited off `wait_for_exit` in
+`DenoPluginRuntimeLauncher::launch`) — so a host-spawned process never outlives the plugin that
+asked for it.
 
 ## Data plane
 

@@ -70,6 +70,9 @@ export const contractErrorSchema = z.object({
         "code": z.literal("plugin_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
+        "code": z.literal("plugin_host_incompatible"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
         "code": z.literal("plugin_configuration_declaration_invalid"),
         "params": emptyErrorParamsSchema
     }), z.object({
@@ -124,7 +127,7 @@ export const contractErrorSchema = z.object({
         "code": z.literal("session_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("agent_cli_not_found"),
+        "code": z.literal("agent_not_installed"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("agent_runtime_unavailable"),
@@ -375,6 +378,9 @@ export const publicErrorSchema = z.union([z.object({
         "code": z.literal("plugin_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
+        "code": z.literal("plugin_host_incompatible"),
+        "params": emptyErrorParamsSchema
+    }), z.object({
         "code": z.literal("plugin_configuration_declaration_invalid"),
         "params": emptyErrorParamsSchema
     }), z.object({
@@ -429,7 +435,7 @@ export const publicErrorSchema = z.union([z.object({
         "code": z.literal("session_not_found"),
         "params": emptyErrorParamsSchema
     }), z.object({
-        "code": z.literal("agent_cli_not_found"),
+        "code": z.literal("agent_not_installed"),
         "params": emptyErrorParamsSchema
     }), z.object({
         "code": z.literal("agent_runtime_unavailable"),

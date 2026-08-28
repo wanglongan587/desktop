@@ -108,6 +108,7 @@ pub enum PublicError {
     AgentNameConflict(EmptyErrorParams),
     AgentNotFound(EmptyErrorParams),
     PluginNotFound(EmptyErrorParams),
+    PluginHostIncompatible(EmptyErrorParams),
     PluginConfigurationDeclarationInvalid(EmptyErrorParams),
     PluginConfigurationNotDeclared(EmptyErrorParams),
     ConfigurationRevisionConflict(EmptyErrorParams),
@@ -126,7 +127,7 @@ pub enum PublicError {
     WorkspaceDiffCommitMessageBlank(EmptyErrorParams),
     WorkspaceDiffTooLarge(EmptyErrorParams),
     SessionNotFound(EmptyErrorParams),
-    AgentCliNotFound(EmptyErrorParams),
+    AgentNotInstalled(EmptyErrorParams),
     AgentRuntimeUnavailable(EmptyErrorParams),
     SessionBusy(EmptyErrorParams),
     SessionStopped(EmptyErrorParams),
@@ -215,6 +216,7 @@ impl PublicError {
             Self::AgentNameConflict(_) => "agent_name_conflict",
             Self::AgentNotFound(_) => "agent_not_found",
             Self::PluginNotFound(_) => "plugin_not_found",
+            Self::PluginHostIncompatible(_) => "plugin_host_incompatible",
             Self::PluginConfigurationDeclarationInvalid(_) => {
                 "plugin_configuration_declaration_invalid"
             }
@@ -239,7 +241,7 @@ impl PublicError {
             Self::WorkspaceDiffCommitMessageBlank(_) => "workspace_diff_commit_message_blank",
             Self::WorkspaceDiffTooLarge(_) => "workspace_diff_too_large",
             Self::SessionNotFound(_) => "session_not_found",
-            Self::AgentCliNotFound(_) => "agent_cli_not_found",
+            Self::AgentNotInstalled(_) => "agent_not_installed",
             Self::AgentRuntimeUnavailable(_) => "agent_runtime_unavailable",
             Self::SessionBusy(_) => "session_busy",
             Self::SessionStopped(_) => "session_stopped",
@@ -387,6 +389,7 @@ mod tests {
             PublicError::AgentNameConflict(empty),
             PublicError::AgentNotFound(empty),
             PublicError::PluginNotFound(empty),
+            PublicError::PluginHostIncompatible(empty),
             PublicError::PluginConfigurationDeclarationInvalid(empty),
             PublicError::PluginConfigurationNotDeclared(empty),
             PublicError::ConfigurationRevisionConflict(empty),
@@ -409,7 +412,7 @@ mod tests {
             PublicError::WorkspaceDiffCommitMessageBlank(empty),
             PublicError::WorkspaceDiffTooLarge(empty),
             PublicError::SessionNotFound(empty),
-            PublicError::AgentCliNotFound(empty),
+            PublicError::AgentNotInstalled(empty),
             PublicError::AgentRuntimeUnavailable(empty),
             PublicError::SessionBusy(empty),
             PublicError::SessionStopped(empty),
@@ -493,6 +496,7 @@ mod tests {
                 | PublicError::AgentNameConflict(_)
                 | PublicError::AgentNotFound(_)
                 | PublicError::PluginNotFound(_)
+                | PublicError::PluginHostIncompatible(_)
                 | PublicError::PluginConfigurationDeclarationInvalid(_)
                 | PublicError::PluginConfigurationNotDeclared(_)
                 | PublicError::ConfigurationRevisionConflict(_)
@@ -511,7 +515,7 @@ mod tests {
                 | PublicError::WorkspaceDiffCommitMessageBlank(_)
                 | PublicError::WorkspaceDiffTooLarge(_)
                 | PublicError::SessionNotFound(_)
-                | PublicError::AgentCliNotFound(_)
+                | PublicError::AgentNotInstalled(_)
                 | PublicError::AgentRuntimeUnavailable(_)
                 | PublicError::SessionBusy(_)
                 | PublicError::SessionStopped(_)
@@ -591,7 +595,7 @@ mod tests {
     #[test]
     fn public_error_codes_match_serde_tags_for_every_variant() {
         let samples = public_error_samples();
-        assert_eq!(samples.len(), 94);
+        assert_eq!(samples.len(), 95);
 
         for error in samples {
             let serialized = serde_json::to_value(&error).unwrap();

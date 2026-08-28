@@ -8,6 +8,7 @@ import {
   type ProxySettings,
   type ContractsClient,
   type InstalledPlugin,
+  type InstallOutcome,
   type PluginConfigurationDetails,
   type PluginSettingValue,
   type Project,
@@ -90,6 +91,11 @@ export interface MockClientState {
    * committed as an installed package that is immediately available.
    */
   importTarget?: InstalledPlugin | null;
+  /**
+   * The typed install/import outcome returned by the mock plugin commands. Defaults to
+   * `installed`; a conflict test supplies `installed_with_command_conflict`.
+   */
+  installOutcome?: InstallOutcome;
   developerMode: { enabled: boolean };
   runtimeLogLevel: RuntimeLogLevelStateResponse;
   workflows: MockWorkflowRecord[];
@@ -107,18 +113,40 @@ export interface MockClientState {
 }
 
 /**
- * Every agent identity the frontend has a picker entry for, all detected by default.
+ * Every agent this mock installation offers, supplied by an installed package and detected.
  *
- * A test that needs one to be missing or unreachable overrides `agentRuntimeStatuses` rather than
- * rebuilding the whole list.
+ * Agents exist only because a package supplies them, so a test needs both halves to see one in a
+ * picker: the installed package that names it, and a runtime status that reaches it. A test that
+ * needs one unreachable overrides `agentRuntimeStatuses`; one that needs it gone entirely
+ * overrides `installedPlugins` as well.
  */
-const AGENT_REFS = [
-  "ora-space.opencode",
-  "ora-space.nga",
-  "ora-space.codeagentcli",
-  "ora-space.claude",
-  "ora-space.codex",
+const AGENT_PACKAGES: { agentRef: string; displayName: string }[] = [
+  { agentRef: "ora-space.opencode", displayName: "OpenCode" },
+  { agentRef: "ora-space.nga", displayName: "NGA" },
+  { agentRef: "ora-space.codeagentcli", displayName: "CodeAgentCLI" },
+  { agentRef: "ora-space.claude", displayName: "Claude Code" },
+  { agentRef: "ora-space.codex", displayName: "Codex" },
 ];
+
+/** Builds the installed-package record one seeded agent is supplied by. */
+function agentPackage(agentRef: string, displayName: string): InstalledPlugin {
+  return {
+    id: `official/${agentRef}`,
+    namespace: "official",
+    name: agentRef,
+    displayName,
+    version: "1.0.0",
+    description: `${displayName} agent`,
+    homepage: null,
+    license: null,
+    kind: "agent",
+    agentDisplayName: displayName,
+    logo: null,
+    installationValidity: { validity: "valid" },
+    configuration: { state: "not_declared" },
+    runtime: "running",
+  };
+}
 
 /** Creates a fresh in-memory mock state with no records. */
 export function createMockClientState(): MockClientState {
@@ -129,10 +157,12 @@ export function createMockClientState(): MockClientState {
     sessions: [],
     agents: [],
     skills: [],
-    installedPlugins: [],
+    installedPlugins: AGENT_PACKAGES.map((agent) =>
+      agentPackage(agent.agentRef, agent.displayName),
+    ),
     pluginConfigurations: new Map(),
-    agentRuntimeStatuses: AGENT_REFS.map((agentRef) => ({
-      agentRef,
+    agentRuntimeStatuses: AGENT_PACKAGES.map((agent) => ({
+      agentRef: agent.agentRef,
       status: "ready",
     })),
     availablePlugins: [],
@@ -171,6 +201,39 @@ function nextId(prefix: string, count: number): string {
 /** Produces a millisecond-precision timestamp matching the contract's bigint wire type. */
 function nextTimestamp(): bigint {
   return BigInt(Date.now());
+}
+
+/** Materializes one installed plugin from a marketplace listing for mock install tests. */
+function installedFromAvailable(available: AvailablePlugin): InstalledPlugin {
+  const shared = {
+    id: available.id,
+    namespace: available.namespace,
+    name: available.name,
+    displayName: available.name,
+    version: available.version,
+    description: available.description,
+    homepage: null,
+    license: null,
+    logo: available.logo,
+    installationValidity: { validity: "valid" as const },
+    configuration: { state: "not_declared" as const },
+    runtime: "stopped" as const,
+  };
+  if (available.kind === "hook") {
+    return {
+      ...shared,
+      kind: "hook",
+      protocol: "rtk-rewrite-v1",
+      command: "rtk",
+      target: "x86_64-pc-windows-msvc",
+      toolVersion: "0.45.0",
+    };
+  }
+  return {
+    ...shared,
+    kind: "agent",
+    agentDisplayName: available.name,
+  };
 }
 
 /** Returns or creates the mock project's canonical Workspace projection. */
@@ -512,8 +575,14 @@ export function createMockClient(state: MockClientState): ContractsClient {
         if (target === undefined)
           throw new Error(`import not configured for ${req.path}`);
         if (target === null) throw new Error(`import failed for ${req.path}`);
+        const outcome = state.installOutcome ?? {
+          state: "installed" as const,
+        };
         state.installedPlugins.push({ ...target });
-        return { pluginId: target.id };
+        return {
+          pluginId: target.id,
+          outcome,
+        };
       },
       install: async (req) => {
         const available = state.availablePlugins.find(
@@ -521,22 +590,29 @@ export function createMockClient(state: MockClientState): ContractsClient {
         );
         if (!available)
           throw new Error(`available plugin ${req.pluginId} not found`);
-        state.installedPlugins.push({
-          id: available.id,
-          namespace: available.namespace,
-          name: available.name,
-          displayName: available.name,
-          version: available.version,
-          description: available.description,
-          homepage: null,
-          license: null,
-          kind: "agent",
-          agentDisplayName: available.name,
-          logo: available.logo,
-          installationValidity: { validity: "valid" },
-          configuration: { state: "not_declared" },
-          runtime: "stopped",
-        });
+        const outcome = state.installOutcome ?? {
+          state: "installed" as const,
+        };
+        state.installedPlugins.push(installedFromAvailable(available));
+        return {
+          pluginId: req.pluginId,
+          outcome,
+        };
+      },
+      update: async (req) => {
+        const available = state.availablePlugins.find(
+          (p) => p.id === req.pluginId,
+        );
+        if (!available)
+          throw new Error(`available plugin ${req.pluginId} not found`);
+        const installed = state.installedPlugins.find(
+          (p) => p.id === req.pluginId,
+        );
+        if (!installed)
+          throw new Error(`installed plugin ${req.pluginId} not found`);
+        installed.version = available.version;
+        installed.description = available.description;
+        installed.logo = available.logo;
         return { pluginId: req.pluginId };
       },
     },
