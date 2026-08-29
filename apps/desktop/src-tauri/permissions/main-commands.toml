@@ -60,6 +60,7 @@ commands.allow = [
     "reset_plugin_configuration",
     "list_available_plugins",
     "sync_available_plugins",
+    "read_plugin_readme",
     "list_marketplace_sources",
     "add_marketplace_source",
     "delete_marketplace_source",
@@ -128,4 +129,7 @@ commands.allow = [
     "plugin_webview_invoke",
     "surface_resolve_download",
     "surface_discard_download",
+    "get_desktop_update_status",
+    "install_desktop_update",
+    "check_desktop_update",
 ]

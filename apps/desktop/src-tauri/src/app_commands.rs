@@ -58,6 +58,7 @@ desktop_command_registry! {
     commands::reset_plugin_configuration,
     commands::list_available_plugins,
     commands::sync_available_plugins,
+    commands::read_plugin_readme,
     commands::list_marketplace_sources,
     commands::add_marketplace_source,
     commands::delete_marketplace_source,
@@ -125,4 +126,7 @@ desktop_command_registry! {
     surface::workbench_bridge::plugin_webview_invoke,
     surface::commands::surface_resolve_download,
     surface::commands::surface_discard_download,
+    update::commands::get_desktop_update_status,
+    update::commands::install_desktop_update,
+    update::commands::check_desktop_update,
 }
