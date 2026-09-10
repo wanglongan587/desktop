@@ -5,7 +5,10 @@ use crate::BackendError;
 use crate::agent_runtime::AgentRuntimeManager;
 use crate::plugin_gateway::PluginGateway;
 use ora_contracts::*;
+use ora_domain::PluginId;
+use ora_plugin_asset::LogoAssetRoot;
 use ora_utils::http::ProgressCallback;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -63,6 +66,16 @@ impl Plugins {
         request: ResetPluginConfigurationRequest,
     ) -> Result<ResetPluginConfigurationResponse, BackendError> {
         self.host.reset_configuration(request)
+    }
+
+    /// Returns the directory one plugin's icon candidates are served from under `root`.
+    ///
+    /// The icon protocol needs a root, not a file: the URL names which of the two directories it
+    /// means, the plugin, the theme role and the extension, and the handler builds the candidate
+    /// filename itself from those closed sets. A root that holds nothing for this id reads as
+    /// `None` and the request is refused, without consulting the other root.
+    pub fn logo_directory(&self, root: LogoAssetRoot, plugin_id: &PluginId) -> Option<PathBuf> {
+        self.host.logo_directory(root, plugin_id)
     }
 
     /// Returns the cached marketplace registry index used to populate plugin discovery.

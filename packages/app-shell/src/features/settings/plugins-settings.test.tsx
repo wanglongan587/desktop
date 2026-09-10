@@ -2,7 +2,11 @@ import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, expect, it, vi } from "vitest";
-import type { ContractsClient, InstalledPlugin } from "@ora/contracts";
+import type {
+  ContractsClient,
+  InstalledPlugin,
+  PluginLogo,
+} from "@ora/contracts";
 import { toast } from "@ora/ui";
 import { AppI18nProvider } from "../../i18n/i18n";
 import { appI18n } from "../../i18n/i18n-instance";
@@ -73,11 +77,13 @@ async function openManagePlugins(user: ReturnType<typeof userEvent.setup>) {
   );
 }
 
-/** The registry-supplied brand mark, already security-validated by the backend. */
-const WEATHER_LOGO =
-  '<svg xmlns="http://www.w3.org/2000/svg"><rect width="8"/></svg>';
+/** The host-local asset URL the backend hands out for a validated registry icon. */
+const WEATHER_LOGO: PluginLogo = {
+  variant: "universal",
+  url: "ora-plugin://localhost/logo/official/weather/universal.svg",
+};
 
-function clientWithWeather(logo: string | null = null) {
+function clientWithWeather(logo: PluginLogo | null = null) {
   const state = createFixtureState();
   // This file exercises install/import flows in isolation from the seeded agent
   // packages, so installed-plugin assertions can count exactly the fixture under test.
@@ -440,10 +446,7 @@ it("renders the brand mark shipped with a marketplace plugin", async () => {
 
   await screen.findByText("Weather");
   const logo = container.querySelector("img");
-  expect(logo).toHaveAttribute(
-    "src",
-    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(WEATHER_LOGO)}`,
-  );
+  expect(logo).toHaveAttribute("src", WEATHER_LOGO.url);
 });
 
 /** Plugins that ship no mark keep the row shape by falling back to the generic plug icon. */
@@ -468,7 +471,7 @@ it("renders the brand mark of an installed plugin in the manager", async () => {
   await screen.findByText("official/weather");
   expect(container.querySelector("img")).toHaveAttribute(
     "src",
-    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(WEATHER_LOGO)}`,
+    WEATHER_LOGO.url,
   );
   expect(
     screen.queryByRole("button", { name: /启动|Start/ }),

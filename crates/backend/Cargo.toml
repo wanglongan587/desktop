@@ -23,6 +23,7 @@ ora-effect-skill = { workspace = true }
 ora-fs = { workspace = true }
 ora-history = { workspace = true }
 ora-logging = { workspace = true }
+ora-plugin-asset = { workspace = true }
 ora-plugin-config = { workspace = true }
 ora-plugin-manifest = { workspace = true }
 ora-plugin-lifecycle = { workspace = true }

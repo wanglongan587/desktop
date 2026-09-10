@@ -1,3 +1,5 @@
+mod listing;
+mod logo_roots;
 mod marketplace;
 mod operations;
 pub use operations::Plugins;
@@ -9,6 +11,7 @@ use crate::error::{BackendError, ErrorClassification};
 use crate::marketplace_sources::{
     ConfiguredMarketplaceSource, MarketplaceSourceStore, map_marketplace_source_error,
 };
+use crate::plugin::listing::available_plugin;
 use crate::proxy;
 use crate::settings::Settings;
 use gitlancer::{CliGitRunner, Git};
@@ -19,11 +22,10 @@ use ora_contracts::{
     EmptyErrorParams, ImportPluginRequest, ImportPluginResponse, InstallOutcome,
     ListAvailablePluginsRequest, ListAvailablePluginsResponse, ListInstalledPluginsRequest,
     ListInstalledPluginsResponse, ListMarketplaceSourcesRequest, ListMarketplaceSourcesResponse,
-    MarketplaceArtifactRetrieval, PluginHostCompatibility, PublicError, ReadPluginReadmeRequest,
-    ReadPluginReadmeResponse, ScanPluginsRequest, ScanPluginsResponse, StopPluginRequest,
-    StopPluginResponse, SyncAvailablePluginsRequest, SyncAvailablePluginsResponse,
-    UninstallPluginRequest, UninstallPluginResponse, UpdateMarketplaceSourceRequest,
-    UpdateMarketplaceSourceResponse,
+    MarketplaceArtifactRetrieval, PublicError, ReadPluginReadmeRequest, ReadPluginReadmeResponse,
+    ScanPluginsRequest, ScanPluginsResponse, StopPluginRequest, StopPluginResponse,
+    SyncAvailablePluginsRequest, SyncAvailablePluginsResponse, UninstallPluginRequest,
+    UninstallPluginResponse, UpdateMarketplaceSourceRequest, UpdateMarketplaceSourceResponse,
 };
 use ora_db::{
     PluginSkillProjection, RepositoryPool, SqliteEffectRepository,
@@ -40,7 +42,7 @@ use ora_plugin_lifecycle::{
     PluginLifecycleError, PluginNotificationSink, PluginRuntimeTimeouts,
 };
 use ora_plugin_manager::{Installer, PluginContribution, PluginManager};
-use ora_plugin_registry::{RegistryEntry, RegistryError, RegistryIndex, RegistrySync};
+use ora_plugin_registry::{RegistryIndex, RegistrySync};
 use ora_utils::http::{ProxyConfig, ReqwestDownloader, S3Config};
 use ora_utils::url::canonical_repository_url;
 use std::collections::{BTreeMap, HashSet};
@@ -295,7 +297,12 @@ impl PluginApi {
                 updated_at: index.updated_at(),
                 plugins: index.plugins().iter().map(available_plugin).collect(),
             },
-            Err(RegistryError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            // A cache this host cannot read is the same situation as one that was never written:
+            // the endpoint never reaches the network, so the only remedy either way is the user
+            // syncing once. Reporting an error instead would turn an index schema change into a
+            // marketplace that appears broken.
+            Err(error) if RegistryIndex::is_unusable_cache(&error) => {
+                ora_warn!(%error, "rebuilding an unusable plugin registry index cache");
                 ListAvailablePluginsResponse {
                     updated_at: 0,
                     plugins: Vec::new(),
@@ -838,25 +845,6 @@ impl PluginApi {
                 self.clock.now_timestamp_millis(),
             )
             .map_err(|error| BackendError::internal("failed to persist plugin Skills", error))
-    }
-}
-
-/// Converts one registry entry into the frontend-facing marketplace summary.
-fn available_plugin(entry: &RegistryEntry) -> ora_contracts::AvailablePlugin {
-    ora_contracts::AvailablePlugin {
-        id: entry.id().canonical(),
-        name: entry.identifier().to_owned(),
-        title: entry.title().to_owned(),
-        kind: entry.kind().to_owned(),
-        namespace: entry.namespace().to_owned(),
-        source_url: entry.source_url().to_owned(),
-        version: entry.version().to_string(),
-        description: entry.description().to_owned(),
-        logo: entry.logo().map(str::to_owned),
-        compatibility: match entry.host_compatibility() {
-            Ok(()) => PluginHostCompatibility::Compatible,
-            Err(reason) => PluginHostCompatibility::Incompatible { reason },
-        },
     }
 }
 

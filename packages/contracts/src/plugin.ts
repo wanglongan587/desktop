@@ -58,9 +58,9 @@ export type AvailablePlugin =
     version: string;
     description: string;
     /**
-     * Security-validated SVG source for the marketplace icon, absent when none is published.
+     * Host-local asset URLs for the marketplace icon, absent when none is published.
      */
-    logo: string | null;
+    logo: PluginLogo | null;
   }
   & ({ "compatibility": "compatible" } | {
     "compatibility": "incompatible";
@@ -162,13 +162,9 @@ export type InstalledPlugin =
     homepage: string | null;
     license: string | null;
     /**
-     * Security-validated SVG source for the package icon, absent when the package ships none.
-     *
-     * The icon travels as inline source instead of a filesystem path because the webview cannot
-     * read the plugin directory; surfaces render it from a `data:` URL and fall back to a
-     * generic mark when it is absent.
+     * Host-local asset URLs for the package icon, absent when the package ships none.
      */
-    logo: string | null;
+    logo: PluginLogo | null;
     installationValidity: PluginInstallationValidity;
     configuration: PluginConfigurationSummary;
   }
@@ -374,6 +370,25 @@ export type PluginHostCompatibility = { "compatibility": "compatible" } | {
 export type PluginInstallationValidity = { "validity": "valid" } | {
   "validity": "invalid_declaration";
   errorCode: string;
+};
+
+/**
+ * Locates one plugin's icon as host-local asset URLs, never as icon content.
+ *
+ * The host serves the bytes from its own `ora-plugin` protocol, so the payload of every listing
+ * stays constant no matter how large or how many icons there are, the bytes of a listing that
+ * is never drawn are never read, and the icon's format stops being visible to the contract at
+ * all — which is what lets an icon be a bitmap rather than only inline SVG source.
+ *
+ * The two shapes are an enum rather than a pair of optional URLs so that a half-built theme
+ * pair cannot be expressed: the host decides once which files back which theme, and the
+ * renderer only picks a branch. `Universal` is drawn under both themes; `Themed` always carries
+ * both halves, which may come from different files and different image formats.
+ */
+export type PluginLogo = { "variant": "universal"; url: string } | {
+  "variant": "themed";
+  light: string;
+  dark: string;
 };
 
 /**
