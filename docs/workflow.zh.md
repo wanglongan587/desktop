@@ -4,6 +4,8 @@
 
 已交付扩展：[工作流循环节点实现计划与证据](workflow-loop-plan.zh.md)。
 
+面向使用者的节点级编排与运行指南见[工作流节点使用指南](workflow-node-guide.zh.md)。
+
 `ora-application` 负责工作流定义用例，`ora-db` 负责持久化，`ora-contracts` 定义公共契约。工作流管理可编辑的 Agent 编排图，以草稿作为编辑工作区，以不可变发布快照作为运行版本。
 
 ## 实体与数据表
@@ -204,10 +206,10 @@ Start 表单控件与变量类型分离：文本、段落、选择框、数字�
 `resumable` 只表示「同一快照再跑一次是否像环境/瞬时问题」，不决定界面是否允许续跑——失败或
 已取消且空闲的运行始终可以续跑：
 
-| Kind                                                                                                                                                                                                    | `resumable` |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `workflow_model_not_found`、`missing_agent_config`、`session`、`session_ended_without_stop_reason`、`session_binding_rejected`、`interrupted_by_restart`、`repository`、`baseline_persist`              | true        |
-| `structured_output`、`agent_refusal`、`prompt_template`、`missing_agent_ref`、`missing_skill_materialization`、`invalid_run_payload`、`unknown_stop_reason`、`multiple_outputs`、`condition_evaluation` | false       |
+| Kind                                                                                                                                                                                                                           | `resumable` |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| `workflow_model_not_found`、`missing_agent_config`、`session`、`session_ended_without_stop_reason`、`session_binding_rejected`、`interrupted_by_restart`、`repository`、`baseline_persist`                                     | true        |
+| `structured_output`、`agent_refusal`、`prompt_template`、`missing_agent_ref`、`missing_skill_materialization`、`invalid_run_payload`、`unknown_stop_reason`、`multiple_outputs`、`condition_evaluation`、`aggregator_no_match` | false       |
 
 只有智能体自身行为导致的失败会注入后续提示词（`injects_previous_failure`）：
 `structured_output`、`agent_refusal`、`unknown_stop_reason`、`multiple_outputs`。以
@@ -279,7 +281,7 @@ Condition、Output 和复合节点从不重试，`interactive: true` 的智能�
 `structured_output`、`agent_refusal`、`unknown_stop_reason`。其余 kind（`missing_agent_ref`、
 `workflow_model_not_found`、`missing_agent_config`、`invalid_run_payload`、
 `prompt_template`、`missing_skill_materialization`、`baseline_persist`、`repository`、
-`interrupted_by_restart`、`multiple_outputs`、`condition_evaluation`）立即失败。
+`interrupted_by_restart`、`multiple_outputs`、`condition_evaluation`、`aggregator_no_match`）立即失败。
 
 第 `n` 次重试（从 1 数）前等待 `initialDelaySeconds × 2^(n-1)` 秒，上限 600 秒：默认策略下
 两次等待是 10 秒和 20 秒，一个节点最多跑三次。

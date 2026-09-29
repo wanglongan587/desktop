@@ -4,6 +4,8 @@ English | [中文](workflow.zh.md)
 
 Delivered extension: [Workflow Loop implementation plan and evidence](workflow-loop-plan.md).
 
+For a user-facing, node-by-node authoring and run guide, see the [Workflow Node Guide](workflow-node-guide.md).
+
 `ora-application` owns the workflow definition use cases, with persistence in `ora-db` and public contracts in `ora-contracts`. Workflows manage editable agent orchestration graphs with draft-as-workspace semantics and immutable published snapshots.
 
 ## Entities and tables
@@ -266,10 +268,10 @@ inferred by a model.
 (environment / transient), not whether the UI allows resume — resume is always offered for a
 failed or cancelled idle run:
 
-| Kind                                                                                                                                                                                                    | `resumable` |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `workflow_model_not_found`, `missing_agent_config`, `session`, `session_ended_without_stop_reason`, `session_binding_rejected`, `interrupted_by_restart`, `repository`, `baseline_persist`              | true        |
-| `structured_output`, `agent_refusal`, `prompt_template`, `missing_agent_ref`, `missing_skill_materialization`, `invalid_run_payload`, `unknown_stop_reason`, `multiple_outputs`, `condition_evaluation` | false       |
+| Kind                                                                                                                                                                                                                           | `resumable` |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
+| `workflow_model_not_found`, `missing_agent_config`, `session`, `session_ended_without_stop_reason`, `session_binding_rejected`, `interrupted_by_restart`, `repository`, `baseline_persist`                                     | true        |
+| `structured_output`, `agent_refusal`, `prompt_template`, `missing_agent_ref`, `missing_skill_materialization`, `invalid_run_payload`, `unknown_stop_reason`, `multiple_outputs`, `condition_evaluation`, `aggregator_no_match` | false       |
 
 Only agent-behaviour failures are injected into a later prompt (`injects_previous_failure`):
 `structured_output`, `agent_refusal`, `unknown_stop_reason`, `multiple_outputs`. A run created
@@ -359,7 +361,8 @@ on its own); Start, Condition, Output, and composite nodes never do, nor does an
 `session_binding_rejected`, `structured_output`, `agent_refusal`, `unknown_stop_reason`. The
 other kinds (`missing_agent_ref`, `workflow_model_not_found`, `missing_agent_config`,
 `invalid_run_payload`, `prompt_template`, `missing_skill_materialization`, `baseline_persist`,
-`repository`, `interrupted_by_restart`, `multiple_outputs`, `condition_evaluation`) fail at once.
+`repository`, `interrupted_by_restart`, `multiple_outputs`, `condition_evaluation`,
+`aggregator_no_match`) fail at once.
 
 Retry `n` (1-based) waits `initialDelaySeconds × 2^(n-1)` seconds, capped at 600: with the
 default policy the waits are 10 s and 20 s, so a node runs at most three attempts.
