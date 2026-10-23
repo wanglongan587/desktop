@@ -94,7 +94,8 @@ Cloud 可以把会话输入作为定时 occurrence 受理（`spec.trigger = sche
   一个，另一个记为拒绝。被接受的候选连同大小和 SHA-256 组成上报的 `artifact_manifest`，由 Cloud 在接收上传时核对；
   被拒绝的候选连同原因保留在清单里，不会消失。一次遍历最多检查 512 个条目、最多列出 64 条拒绝，其余拒绝计入
   `omitted_rejections`，所以塞满不可用名称的目录仍然只产生能装进一个帧的终止结果。目录不存在就不上报任何产物，对象键
-  最终由 Cloud 决定；Node 不写 Workspace，也不持有对象存储凭据。
+  最终由 Cloud 决定；Node 不写 Workspace，也不持有对象存储凭据。已声明文件的上传是独立的
+  `deliver_scheduled_artifacts` 执行，见 [Revisions](revisions.zh.md#定时产物上传)。
 
 ## 实时预览
 

@@ -128,7 +128,9 @@ turn completed: an end command cancels the turn that is still running.
   walk examines at most 512 entries and lists at most 64 refusals; further refusals are counted in
   `omitted_rejections`, so a directory full of unusable names still produces a terminal result that
   fits one frame. A missing directory declares nothing, and Cloud chooses every object key later;
-  Node never writes to the Workspace and never holds an object-store credential.
+  Node never writes to the Workspace and never holds an object-store credential. Uploading the
+  declared files is the separate `deliver_scheduled_artifacts` execution described in
+  [Revisions](revisions.md#scheduled-artifact-uploads).
 
 ## Live previews
 
